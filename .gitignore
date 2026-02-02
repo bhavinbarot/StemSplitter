@@ -15,3 +15,15 @@ Session.vim
 /misc
 /mdx
 .mypy_cache
+/venv
+/web_jobs
+/SourceAudio
+/demucs/SourceAudio
+/single_video_downloads
+/Output
+*.mp3
+*.wav
+*.flac
+*.m4a
+*.ogg
+.DS_Store

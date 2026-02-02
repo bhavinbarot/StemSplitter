@@ -1,0 +1,1255 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stem Splitter</title>
+  <link rel="icon" type="image/png" href="/ui-icon/brand">
+  <style>
+    :root {
+      --bg: #f7f8fc;
+      --card: #ffffff;
+      --text: #111111;
+      --subtle: #555555;
+      --ok: #0a7f36;
+      --err: #a01b1b;
+      --border: #d8dce8;
+      --btn: #0b5cff;
+      --btn-text: #ffffff;
+    }
+    body {
+      margin: 0;
+      background: linear-gradient(120deg, #edf2ff, #f7f8fc 50%, #fff7e8);
+      color: var(--text);
+      font-family: "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+    .card {
+      width: min(880px, 100%);
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 14px 40px rgba(0, 0, 0, 0.08);
+    }
+    .card.expanded {
+      width: min(80vw, 1600px);
+    }
+    h1 {
+      margin-top: 0;
+      margin-bottom: 10px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .brand img {
+      width: 34px;
+      height: 34px;
+      object-fit: contain;
+      border-radius: 8px;
+    }
+    p {
+      color: var(--subtle);
+      margin-top: 0;
+    }
+    form {
+      display: grid;
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+    label {
+      font-weight: 600;
+      font-size: 14px;
+    }
+    input[type="text"] {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 11px 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      font-size: 14px;
+    }
+    button {
+      width: fit-content;
+      background: var(--btn);
+      color: var(--btn-text);
+      border: 0;
+      border-radius: 10px;
+      padding: 10px 16px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    select, input[type="file"] {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      font-size: 14px;
+      background: #fff;
+    }
+    .link-btn {
+      display: inline-block;
+      background: #0a7f36;
+      color: #fff;
+      text-decoration: none;
+      border-radius: 10px;
+      padding: 10px 16px;
+      font-size: 14px;
+      margin-top: 8px;
+    }
+    .hidden { display: none; }
+    .progress-wrap {
+      margin: 12px 0;
+      width: 100%;
+      height: 12px;
+      border-radius: 999px;
+      background: #e8ecf7;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #0b5cff, #11a0ff);
+      transition: width 0.4s ease;
+    }
+    .status {
+      padding: 12px;
+      border-radius: 10px;
+      margin-bottom: 12px;
+      font-size: 14px;
+    }
+    .ok { background: #eaf8ef; color: var(--ok); }
+    .err { background: #fdeeee; color: var(--err); }
+    ul {
+      margin-top: 8px;
+      padding-left: 18px;
+    }
+    code {
+      background: #f5f7fb;
+      border: 1px solid #e1e6f3;
+      border-radius: 8px;
+      font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+    }
+    code {
+      padding: 1px 6px;
+    }
+    .range-row {
+      display: grid;
+      gap: 6px;
+    }
+    .range-labels {
+      display: flex;
+      justify-content: space-between;
+      color: var(--subtle);
+      font-size: 12px;
+    }
+    .transport {
+      display: grid;
+      grid-template-columns: auto auto auto 1fr auto;
+      gap: 10px;
+      align-items: center;
+      margin: 8px 0 14px;
+    }
+    .transport-btn {
+      width: 42px;
+      height: 42px;
+      padding: 0;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: #0f172a;
+      color: #ffffff;
+      border: 1px solid #0f172a;
+    }
+    .transport-btn svg {
+      width: 18px;
+      height: 18px;
+      fill: currentColor;
+    }
+    .transport-btn:hover {
+      background: #1e293b;
+      border-color: #1e293b;
+    }
+    .transport-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    #transport-seek {
+      width: 100%;
+    }
+    .tracks {
+      display: grid;
+      gap: 10px;
+    }
+    .mixer-tools {
+      display: grid;
+      gap: 10px;
+      margin: 10px 0 14px;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #fbfcff;
+    }
+    .tool-row {
+      display: grid;
+      grid-template-columns: 120px 1fr auto;
+      gap: 10px;
+      align-items: center;
+      font-size: 13px;
+    }
+    .tool-row input[type="range"] {
+      width: 100%;
+    }
+    .loop-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    .advanced-settings {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #fcfdff;
+      padding: 6px 10px;
+    }
+    .advanced-settings summary {
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 13px;
+      color: #1f2937;
+      user-select: none;
+      list-style: none;
+    }
+    .advanced-settings summary::-webkit-details-marker {
+      display: none;
+    }
+    .advanced-grid {
+      margin-top: 10px;
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .advanced-item label {
+      font-size: 12px;
+      color: #4b5563;
+      margin-bottom: 6px;
+      display: block;
+    }
+    .advanced-item select,
+    .advanced-item input[type="range"] {
+      width: 100%;
+    }
+    .advanced-hint {
+      font-size: 11px;
+      color: #6b7280;
+      text-align: right;
+    }
+    .loop-number {
+      width: 130px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      font-size: 12px;
+      background: #fff;
+    }
+    .ghost-btn {
+      background: #f2f4fb;
+      color: #1c2340;
+      border: 1px solid var(--border);
+      padding: 8px 12px;
+    }
+    .ghost-btn.active {
+      background: #0f172a;
+      color: #ffffff;
+      border-color: #0f172a;
+    }
+    .icon-btn {
+      width: 36px;
+      height: 36px;
+      padding: 0;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: #ffffff;
+      color: #1f2937;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .icon-btn:hover {
+      background: #f8fafc;
+    }
+    .icon-btn svg {
+      width: 16px;
+      height: 16px;
+      fill: currentColor;
+    }
+    .zoom-glyph {
+      width: 18px;
+      height: 18px;
+      display: block;
+    }
+    .download-glyph {
+      width: 22px;
+      height: 22px;
+      display: block;
+    }
+    .zoom-actions {
+      display: inline-flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .markers {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .marker-chip {
+      display: inline-flex;
+      gap: 8px;
+      align-items: center;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: #eef2ff;
+      border: 1px solid #d8dff8;
+      font-size: 12px;
+    }
+    .marker-chip button {
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: #ffffff;
+      color: #4b5563;
+      border: 1px solid #d6dbeb;
+      font-size: 11px;
+    }
+    .track-row {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px;
+      display: grid;
+      grid-template-columns: 110px auto minmax(0, 1fr);
+      align-items: start;
+      gap: 10px;
+    }
+    .tracks-topbar {
+      display: flex;
+      justify-content: flex-end;
+      margin: 6px 0 10px;
+    }
+    .track-main {
+      min-width: 0;
+    }
+    .track-name {
+      font-weight: 600;
+      text-transform: capitalize;
+    }
+    .track-mute {
+      background: #f2f4fb;
+      color: #1c2340;
+      border: 1px solid var(--border);
+    }
+    .track-mute.muted {
+      background: #ffdede;
+      color: #751515;
+      border-color: #f1b6b6;
+    }
+    .stem-download-btn {
+      background: transparent;
+      border: 0;
+      width: 24px;
+      height: 24px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+    }
+    .wave-wrap {
+      position: relative;
+      border-radius: 8px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      border: 1px solid #e5e8f2;
+      background: #fafbff;
+    }
+    .footer-version {
+      margin-top: 18px;
+      text-align: right;
+      color: #7b8498;
+      font-size: 11px;
+      letter-spacing: 0.02em;
+    }
+    .wave-content {
+      position: relative;
+      height: 62px;
+    }
+    .loop-download-btn {
+      position: absolute;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: 26px;
+      height: 26px;
+      border-radius: 0;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.16s ease;
+      z-index: 3;
+    }
+    .loop-download-btn.show {
+      opacity: 0.96;
+      pointer-events: auto;
+    }
+    .wave-wrap:hover .loop-download-btn.show {
+      opacity: 1;
+      cursor: pointer;
+    }
+    .marker-editor {
+      margin-top: 8px;
+      display: grid;
+      grid-template-columns: 110px 1fr auto auto;
+      gap: 8px;
+      align-items: center;
+      font-size: 12px;
+    }
+    .marker-editor input[type="number"],
+    .marker-editor input[type="text"] {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 7px 9px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      font-size: 12px;
+      background: #fff;
+    }
+    .marker-editor button {
+      padding: 8px 10px;
+      border-radius: 8px;
+      font-size: 12px;
+      background: #f2f4fb;
+      color: #1c2340;
+      border: 1px solid var(--border);
+    }
+    .wave-canvas {
+      width: auto;
+      height: 62px;
+      display: block;
+      cursor: crosshair;
+    }
+    .playhead {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      background: #0b5cff;
+      left: 0;
+      transform: translateX(-1px);
+      pointer-events: none;
+    }
+    .mixer-bottom {
+      margin-top: 10px;
+      display: flex;
+      justify-content: flex-end;
+    }
+    .download-all-btn {
+      width: 30px;
+      height: 30px;
+      border-radius: 0;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+    }
+    .download-all-btn:hover { opacity: 0.85; }
+    @media (max-width: 760px) {
+      .advanced-grid {
+        grid-template-columns: 1fr;
+      }
+      .tool-row {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <div class="brand">
+      <img src="/ui-icon/brand" alt="Stem Splitter">
+      <h1>Stem Splitter</h1>
+    </div>
+    <p>Upload a song, pick split mode and quality, then preview, mix, and download individual stems or a full ZIP.</p>
+
+    <form id="split-form" action="/start" method="post" enctype="multipart/form-data">
+      <div>
+        <label for="audio_file">Upload audio file</label>
+        <input
+          id="audio_file"
+          name="audio_file"
+          type="file"
+          accept=".mp3,.mpe,.wav,.flac,.m4a,.aac,.ogg,audio/*"
+          required
+        >
+      </div>
+      <details class="advanced-settings">
+        <summary>Optional settings</summary>
+        <div class="advanced-grid">
+          <div class="advanced-item">
+            <label for="separation_mode">Choose what to separate</label>
+            <select id="separation_mode" name="separation_mode">
+              <option value="full" selected>Default (4 stems)</option>
+              <option value="vocals">Only vocals (2-stem mode)</option>
+            </select>
+          </div>
+          <div class="advanced-item">
+            <label for="quality_level">Speed vs quality</label>
+            <input id="quality_level" name="quality_level" type="range" min="0" max="100" step="1" value="50">
+          </div>
+          <div class="advanced-item">
+            <label for="output_format">Output format</label>
+            <select id="output_format" name="output_format">
+              <option value="mp3" selected>MP3</option>
+              <option value="wav">WAV</option>
+            </select>
+          </div>
+        </div>
+        <div class="advanced-hint">Defaults are already optimized for most songs.</div>
+      </details>
+      <button type="submit">Split Audio</button>
+    </form>
+
+    <div id="status-err" class="status err hidden"></div>
+    <div id="status-ok" class="status ok hidden"></div>
+
+    <section id="progress-section" class="hidden">
+      <h3>Progress</h3>
+      <div class="progress-wrap"><div id="progress-fill" class="progress-fill"></div></div>
+      <p id="progress-text">Queued...</p>
+    </section>
+
+    <section id="mixer-section" class="hidden">
+      <h3>Stem Mixer</h3>
+      <div class="transport">
+        <button type="button" id="play-btn" class="transport-btn" aria-label="Play" title="Play" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.14v13.72a1 1 0 0 0 1.54.84l10.3-6.86a1 1 0 0 0 0-1.66L9.54 4.3A1 1 0 0 0 8 5.14Z"/></svg>
+        </button>
+        <button type="button" id="pause-btn" class="transport-btn" aria-label="Pause" title="Pause" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5a1 1 0 0 1 1-1h2.5a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V5Zm5.5 0a1 1 0 0 1 1-1H16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-2.5a1 1 0 0 1-1-1V5Z"/></svg>
+        </button>
+        <button type="button" id="stop-btn" class="transport-btn" aria-label="Stop" title="Stop" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 6a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1H7Z"/></svg>
+        </button>
+        <input id="transport-seek" type="range" min="0" max="1000" value="0">
+        <code id="transport-time">00:00 / 00:00</code>
+      </div>
+      <div class="mixer-tools">
+        <div class="tool-row">
+          <strong>Tempo</strong>
+          <input id="tempo-slider" type="range" min="50" max="150" step="1" value="100">
+          <code id="tempo-value">100%</code>
+        </div>
+        <div class="tool-row">
+          <strong>Pitch</strong>
+          <input id="pitch-slider" type="range" min="-12" max="12" step="1" value="0">
+          <code id="pitch-value">0 semitones</code>
+        </div>
+        <div class="loop-row">
+          <button type="button" id="set-loop-start" class="ghost-btn">Set Loop A</button>
+          <button type="button" id="set-loop-end" class="ghost-btn">Set Loop B</button>
+          <button type="button" id="clear-loop" class="icon-btn" title="Clear loop" aria-label="Clear loop">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6a1 1 0 0 1 1 1v1h4a1 1 0 1 1 0 2h-1.08l-.83 11.22A2 2 0 0 1 16.1 20H7.9a2 2 0 0 1-1.99-1.78L5.08 7H4a1 1 0 1 1 0-2h4V4a1 1 0 0 1 1-1Zm1 2h4v0h-4v0Zm5.99 2H8.01l.81 10.9a.5.5 0 0 0 .5.45h4.36a.5.5 0 0 0 .5-.45L15.99 7ZM10 9a1 1 0 0 1 1 1v5a1 1 0 1 1-2 0v-5a1 1 0 0 1 1-1Zm4 0a1 1 0 0 1 1 1v5a1 1 0 1 1-2 0v-5a1 1 0 0 1 1-1Z"/></svg>
+          </button>
+          <input id="loop-start-input" class="loop-number" type="number" min="0" step="0.1" value="0" title="Loop start (seconds)">
+          <input id="loop-end-input" class="loop-number" type="number" min="0" step="0.1" value="0" title="Loop end (seconds)">
+          <button type="button" id="apply-loop-range" class="ghost-btn">Apply Range</button>
+          <button type="button" id="loop-toggle-btn" class="ghost-btn">Loop Playback Off</button>
+          <code id="loop-value">Loop: Off</code>
+        </div>
+        <div>
+          <p style="margin: 0 0 6px 0; font-size: 12px;">Click waveform to seek. Double-click a track waveform to add marker labels for that stem.</p>
+          <div id="markers" class="markers"></div>
+        </div>
+      </div>
+      <div class="tracks-topbar">
+        <div class="zoom-actions">
+          <button type="button" id="zoom-out-btn" class="icon-btn" title="Zoom out" aria-label="Zoom out">
+            <img class="zoom-glyph" src="/ui-icon/zoom-out" alt="">
+          </button>
+          <button type="button" id="zoom-in-btn" class="icon-btn" title="Zoom in" aria-label="Zoom in">
+            <img class="zoom-glyph" src="/ui-icon/zoom-in" alt="">
+          </button>
+          <code id="zoom-value">100%</code>
+        </div>
+      </div>
+      <div id="tracks-container" class="tracks"></div>
+      <div class="mixer-bottom">
+        <button type="button" id="download-all-btn" class="download-all-btn" title="Download all stems ZIP" aria-label="Download all stems ZIP">
+          <img class="download-glyph" src="/ui-icon/download-all" alt="">
+        </button>
+      </div>
+    </section>
+    <div class="footer-version">UI {{ ui_version }}</div>
+  </main>
+  <script>
+    const form = document.getElementById("split-form");
+    const card = document.querySelector(".card");
+    const statusErr = document.getElementById("status-err");
+    const statusOk = document.getElementById("status-ok");
+    const progressSection = document.getElementById("progress-section");
+    const progressFill = document.getElementById("progress-fill");
+    const progressText = document.getElementById("progress-text");
+    const mixerSection = document.getElementById("mixer-section");
+    const tracksContainer = document.getElementById("tracks-container");
+    const downloadAllBtn = document.getElementById("download-all-btn");
+    const playBtn = document.getElementById("play-btn");
+    const pauseBtn = document.getElementById("pause-btn");
+    const stopBtn = document.getElementById("stop-btn");
+    const transportSeek = document.getElementById("transport-seek");
+    const transportTime = document.getElementById("transport-time");
+    const tempoSlider = document.getElementById("tempo-slider");
+    const pitchSlider = document.getElementById("pitch-slider");
+    const zoomOutBtn = document.getElementById("zoom-out-btn");
+    const zoomInBtn = document.getElementById("zoom-in-btn");
+    const tempoValue = document.getElementById("tempo-value");
+    const pitchValue = document.getElementById("pitch-value");
+    const zoomValue = document.getElementById("zoom-value");
+    const setLoopStartBtn = document.getElementById("set-loop-start");
+    const setLoopEndBtn = document.getElementById("set-loop-end");
+    const clearLoopBtn = document.getElementById("clear-loop");
+    const loopStartInput = document.getElementById("loop-start-input");
+    const loopEndInput = document.getElementById("loop-end-input");
+    const applyLoopRangeBtn = document.getElementById("apply-loop-range");
+    const loopToggleBtn = document.getElementById("loop-toggle-btn");
+    const loopValue = document.getElementById("loop-value");
+    const markersEl = document.getElementById("markers");
+    let pollTimer = null;
+    let mixer = {
+      audioContext: null,
+      tracks: [],
+      duration: 0,
+      isPlaying: false,
+      startedAt: 0,
+      pausedAt: 0,
+      rafId: null,
+      tempoPct: 100,
+      pitchSemitones: 0,
+      zoom: 1,
+      markers: [],
+      loopStart: null,
+      loopEnd: null,
+      loopEnabled: false,
+      jobId: "",
+      zipDownloadUrl: "",
+    };
+
+    function showError(message) {
+      statusErr.textContent = message;
+      statusErr.classList.remove("hidden");
+      statusOk.classList.add("hidden");
+    }
+
+    function clearError() {
+      statusErr.textContent = "";
+      statusErr.classList.add("hidden");
+    }
+
+    function formatTime(seconds) {
+      const rounded = Math.max(0, Math.floor(seconds));
+      const mins = String(Math.floor(rounded / 60)).padStart(2, "0");
+      const secs = String(rounded % 60).padStart(2, "0");
+      return `${mins}:${secs}`;
+    }
+
+    function formatSeconds(seconds) {
+      return (Math.max(0, seconds)).toFixed(2);
+    }
+
+    function makeLoopDownloadUrl(trackKey) {
+      const params = new URLSearchParams({
+        start: String(mixer.loopStart ?? 0),
+        end: String(mixer.loopEnd ?? 0),
+      });
+      return `/download-loop/${mixer.jobId}/${trackKey}?${params.toString()}`;
+    }
+
+    function applyLoopRange(start, end) {
+      if (!Number.isFinite(start) || !Number.isFinite(end)) return;
+      const safeStart = Math.max(0, Math.min(start, mixer.duration || 0));
+      const safeEnd = Math.max(0, Math.min(end, mixer.duration || 0));
+      if (safeEnd <= safeStart) return;
+      mixer.loopStart = safeStart;
+      mixer.loopEnd = safeEnd;
+      loopStartInput.value = formatSeconds(safeStart);
+      loopEndInput.value = formatSeconds(safeEnd);
+      updateToolReadouts();
+      redrawAllWaveforms();
+    }
+
+    function effectiveTempoRate() {
+      return mixer.tempoPct / 100;
+    }
+
+    function effectivePitchRate() {
+      return 2 ** (mixer.pitchSemitones / 12);
+    }
+
+    function applyPlaybackSettings(track) {
+      if (!track.audioEl) return;
+      const hasPitchShift = mixer.pitchSemitones !== 0;
+      const baseRate = effectiveTempoRate();
+      if ("preservesPitch" in track.audioEl) track.audioEl.preservesPitch = !hasPitchShift;
+      if ("webkitPreservesPitch" in track.audioEl) track.audioEl.webkitPreservesPitch = !hasPitchShift;
+      if ("mozPreservesPitch" in track.audioEl) track.audioEl.mozPreservesPitch = !hasPitchShift;
+      track.audioEl.playbackRate = hasPitchShift ? baseRate * effectivePitchRate() : baseRate;
+      track.audioEl.volume = track.muted ? 0 : 1;
+    }
+
+    function stopTracks(resetPosition = false) {
+      for (const track of mixer.tracks) {
+        if (!track.audioEl) continue;
+        track.audioEl.pause();
+        if (resetPosition) {
+          try { track.audioEl.currentTime = 0; } catch (_) {}
+        }
+      }
+    }
+
+    function currentOffset() {
+      if (!mixer.tracks.length) return 0;
+      if (!mixer.isPlaying) return mixer.pausedAt;
+      const reference = mixer.tracks[0];
+      if (!reference || !reference.audioEl) return mixer.pausedAt;
+      return Math.min(mixer.duration, reference.audioEl.currentTime || 0);
+    }
+
+    function setTransport(offset) {
+      const safeDuration = Math.max(0.001, mixer.duration || 0.001);
+      const pct = Math.max(0, Math.min(1000, Math.round((offset / safeDuration) * 1000)));
+      transportSeek.value = String(pct);
+      transportTime.textContent = `${formatTime(offset)} / ${formatTime(mixer.duration || 0)}`;
+      for (const track of mixer.tracks) {
+        if (track.playhead) {
+          track.playhead.style.left = `${(pct / 1000) * track.canvas.width}px`;
+        }
+      }
+    }
+
+    function drawWaveform(canvas, audioBuffer, markers) {
+      const ctx = canvas.getContext("2d");
+      const width = canvas.width;
+      const height = canvas.height;
+      ctx.clearRect(0, 0, width, height);
+      const data = audioBuffer.getChannelData(0);
+      const step = Math.ceil(data.length / width);
+      const amp = height / 2;
+      ctx.fillStyle = "#dde6ff";
+      ctx.fillRect(0, 0, width, height);
+      ctx.strokeStyle = "#2256e8";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let i = 0; i < width; i += 1) {
+        let min = 1.0;
+        let max = -1.0;
+        const start = i * step;
+        const end = Math.min(start + step, data.length);
+        for (let j = start; j < end; j += 1) {
+          const sample = data[j];
+          if (sample < min) min = sample;
+          if (sample > max) max = sample;
+        }
+        ctx.moveTo(i, (1 + min) * amp);
+        ctx.lineTo(i, (1 + max) * amp);
+      }
+      ctx.stroke();
+
+      if (mixer.loopStart !== null && mixer.loopEnd !== null && mixer.loopEnd > mixer.loopStart) {
+        const xStart = (mixer.loopStart / mixer.duration) * width;
+        const xEnd = (mixer.loopEnd / mixer.duration) * width;
+        ctx.fillStyle = "rgba(52, 211, 153, 0.22)";
+        ctx.fillRect(xStart, 0, Math.max(2, xEnd - xStart), height);
+      } else if (mixer.loopStart !== null) {
+        const xStart = (mixer.loopStart / mixer.duration) * width;
+        ctx.fillStyle = "rgba(245, 158, 11, 0.20)";
+        ctx.fillRect(xStart, 0, Math.max(2, width - xStart), height);
+      }
+
+      ctx.fillStyle = "#7c3aed";
+      ctx.strokeStyle = "#7c3aed";
+      ctx.font = "11px Menlo, Monaco, Consolas, monospace";
+      for (const marker of markers || []) {
+        const x = (marker.time / mixer.duration) * width;
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, height);
+        ctx.stroke();
+        ctx.fillText(marker.label, Math.min(width - 56, x + 4), 12);
+      }
+    }
+
+    function renderMarkerChips() {
+      markersEl.innerHTML = "";
+      for (const track of mixer.tracks) {
+        for (const marker of track.markers || []) {
+          const chip = document.createElement("span");
+          chip.className = "marker-chip";
+          chip.textContent = `${track.key}: ${marker.label} @ ${formatTime(marker.time)}`;
+          const remove = document.createElement("button");
+          remove.type = "button";
+          remove.textContent = "x";
+          remove.addEventListener("click", () => {
+            track.markers = (track.markers || []).filter((m) => m.id !== marker.id);
+            redrawAllWaveforms();
+            renderMarkerChips();
+          });
+          chip.appendChild(remove);
+          markersEl.appendChild(chip);
+        }
+      }
+    }
+
+    function redrawAllWaveforms() {
+      for (const track of mixer.tracks) {
+        const width = Math.max(680, Math.round(680 * mixer.zoom));
+        track.canvas.width = width;
+        track.canvas.height = 62;
+        track.waveContent.style.width = `${width}px`;
+        drawWaveform(track.canvas, track.buffer, track.markers || []);
+        if (track.loopDownloadBtn) {
+          if (mixer.loopStart !== null && mixer.loopEnd !== null && mixer.loopEnd > mixer.loopStart) {
+            const centerX = ((mixer.loopStart + mixer.loopEnd) / 2 / (mixer.duration || 1)) * width;
+            track.loopDownloadBtn.style.left = `${centerX}px`;
+            track.loopDownloadBtn.classList.add("show");
+          } else {
+            track.loopDownloadBtn.classList.remove("show");
+          }
+        }
+      }
+      setTransport(currentOffset());
+    }
+
+    function updateToolReadouts() {
+      tempoValue.textContent = `${mixer.tempoPct}%`;
+      pitchValue.textContent = `${mixer.pitchSemitones} semitones`;
+      zoomValue.textContent = `${Math.round(mixer.zoom * 100)}%`;
+      if (mixer.loopStart !== null && mixer.loopEnd !== null) {
+        loopValue.textContent = `Loop: ${formatTime(mixer.loopStart)} - ${formatTime(mixer.loopEnd)}`;
+        loopStartInput.value = formatSeconds(mixer.loopStart);
+        loopEndInput.value = formatSeconds(mixer.loopEnd);
+      } else if (mixer.loopStart !== null) {
+        loopValue.textContent = `Loop A set at ${formatTime(mixer.loopStart)} (waiting for B)`;
+        loopStartInput.value = formatSeconds(mixer.loopStart);
+      } else {
+        loopValue.textContent = "Loop: Off";
+      }
+      loopToggleBtn.textContent = mixer.loopEnabled ? "Loop Playback On" : "Loop Playback Off";
+      loopToggleBtn.classList.toggle("active", mixer.loopEnabled);
+      setLoopStartBtn.classList.toggle("active", mixer.loopStart !== null);
+      setLoopEndBtn.classList.toggle("active", mixer.loopEnd !== null);
+    }
+
+    function renderTracks() {
+      tracksContainer.innerHTML = "";
+      for (const track of mixer.tracks) {
+        const row = document.createElement("div");
+        row.className = "track-row";
+        const name = document.createElement("div");
+        name.className = "track-name";
+        name.textContent = track.key;
+        const mute = document.createElement("button");
+        mute.type = "button";
+        mute.className = "track-mute";
+        mute.textContent = "Mute";
+        mute.addEventListener("click", () => {
+          track.muted = !track.muted;
+          applyPlaybackSettings(track);
+          mute.classList.toggle("muted", track.muted);
+          mute.textContent = track.muted ? "Muted" : "Mute";
+        });
+        const stemDownloadBtn = document.createElement("button");
+        stemDownloadBtn.type = "button";
+        stemDownloadBtn.className = "stem-download-btn";
+        stemDownloadBtn.title = `Download ${track.key}`;
+        stemDownloadBtn.setAttribute("aria-label", `Download ${track.key}`);
+        stemDownloadBtn.innerHTML = '<img class="download-glyph" src="/ui-icon/download-stem" alt="">';
+        stemDownloadBtn.addEventListener("click", () => {
+          if (!track.downloadUrl) return;
+          window.open(track.downloadUrl, "_self");
+        });
+        const waveWrap = document.createElement("div");
+        waveWrap.className = "wave-wrap";
+        const waveContent = document.createElement("div");
+        waveContent.className = "wave-content";
+        const canvas = document.createElement("canvas");
+        canvas.className = "wave-canvas";
+        canvas.width = Math.max(680, Math.round(680 * mixer.zoom));
+        canvas.height = 62;
+        drawWaveform(canvas, track.buffer, track.markers || []);
+        const playhead = document.createElement("div");
+        playhead.className = "playhead";
+        const loopDownloadBtn = document.createElement("button");
+        loopDownloadBtn.type = "button";
+        loopDownloadBtn.className = "loop-download-btn";
+        loopDownloadBtn.title = "Download selected loop";
+        loopDownloadBtn.innerHTML = '<img class="download-glyph" src="/ui-icon/download-loop" alt="">';
+        loopDownloadBtn.addEventListener("click", () => {
+          if (mixer.loopStart === null || mixer.loopEnd === null || mixer.loopEnd <= mixer.loopStart) return;
+          window.open(makeLoopDownloadUrl(track.key), "_self");
+        });
+        waveContent.style.width = `${canvas.width}px`;
+        waveContent.appendChild(canvas);
+        waveContent.appendChild(playhead);
+        waveContent.appendChild(loopDownloadBtn);
+        waveWrap.appendChild(waveContent);
+        canvas.addEventListener("click", async (event) => {
+          const rect = canvas.getBoundingClientRect();
+          const x = event.clientX - rect.left;
+          const offset = Math.max(0, Math.min(mixer.duration, (x / rect.width) * mixer.duration));
+          track.markerTimeInput.value = formatSeconds(offset);
+          await seekTo(offset);
+        });
+        const markerEditor = document.createElement("div");
+        markerEditor.className = "marker-editor";
+        markerEditor.innerHTML = `
+          <strong>Marker</strong>
+          <input type="text" placeholder="Label (e.g. Verse 1)">
+          <input type="number" min="0" step="0.1" value="0.00">
+          <button type="button">Add</button>
+        `;
+        const markerLabelInput = markerEditor.querySelector('input[type="text"]');
+        const markerTimeInput = markerEditor.querySelector('input[type="number"]');
+        const markerAddButton = markerEditor.querySelector("button");
+        markerAddButton.addEventListener("click", () => {
+          const label = (markerLabelInput.value || "").trim();
+          const markerTime = Number(markerTimeInput.value);
+          if (!label || !Number.isFinite(markerTime)) return;
+          const safeTime = Math.max(0, Math.min(markerTime, mixer.duration || 0));
+          track.markers = track.markers || [];
+          track.markers.push({ id: Date.now() + Math.random(), time: safeTime, label });
+          track.markers.sort((a, b) => a.time - b.time);
+          markerLabelInput.value = "";
+          redrawAllWaveforms();
+          renderMarkerChips();
+        });
+        track.playhead = playhead;
+        track.loopDownloadBtn = loopDownloadBtn;
+        track.waveContent = waveContent;
+        track.canvas = canvas;
+        track.markerTimeInput = markerTimeInput;
+        row.appendChild(name);
+        const controls = document.createElement("div");
+        controls.style.display = "grid";
+        controls.style.gap = "8px";
+        controls.appendChild(mute);
+        controls.appendChild(stemDownloadBtn);
+        row.appendChild(controls);
+        const trackMain = document.createElement("div");
+        trackMain.className = "track-main";
+        trackMain.appendChild(waveWrap);
+        trackMain.appendChild(markerEditor);
+        row.appendChild(trackMain);
+        tracksContainer.appendChild(row);
+      }
+      setTransport(0);
+      renderMarkerChips();
+      updateToolReadouts();
+    }
+
+    function stopPlayback() {
+      stopTracks(true);
+      mixer.isPlaying = false;
+      mixer.pausedAt = 0;
+      if (mixer.rafId) cancelAnimationFrame(mixer.rafId);
+      mixer.rafId = null;
+      setTransport(0);
+    }
+
+    function pausePlayback() {
+      if (!mixer.isPlaying) return;
+      mixer.pausedAt = currentOffset();
+      stopTracks(false);
+      mixer.isPlaying = false;
+      if (mixer.rafId) cancelAnimationFrame(mixer.rafId);
+      mixer.rafId = null;
+      setTransport(mixer.pausedAt);
+    }
+
+    function runTicker() {
+      const offset = currentOffset();
+      if (mixer.loopEnabled && mixer.loopStart !== null && mixer.loopEnd !== null && mixer.loopEnd > mixer.loopStart && offset >= mixer.loopEnd) {
+        playFrom(mixer.loopStart).catch((err) => showError(err.message || "Loop restart failed."));
+        return;
+      }
+      setTransport(offset);
+      if (offset >= mixer.duration - 0.03) {
+        stopPlayback();
+        return;
+      }
+      mixer.rafId = requestAnimationFrame(runTicker);
+    }
+
+    async function playFrom(offset) {
+      if (!mixer.audioContext || !mixer.tracks.length) return;
+      await mixer.audioContext.resume();
+      mixer.pausedAt = offset;
+      for (const track of mixer.tracks) {
+        if (!track.audioEl) continue;
+        applyPlaybackSettings(track);
+        try { track.audioEl.currentTime = offset; } catch (_) {}
+      }
+      await Promise.all(
+        mixer.tracks.map((track) => {
+          if (!track.audioEl) return Promise.resolve();
+          return track.audioEl.play().catch(() => {});
+        })
+      );
+      mixer.isPlaying = true;
+      if (mixer.rafId) cancelAnimationFrame(mixer.rafId);
+      mixer.rafId = requestAnimationFrame(runTicker);
+    }
+
+    async function seekTo(offset) {
+      const nextOffset = Math.max(0, Math.min(offset, mixer.duration || 0));
+      if (mixer.isPlaying) {
+        await playFrom(nextOffset);
+      } else {
+        mixer.pausedAt = nextOffset;
+        setTransport(nextOffset);
+      }
+    }
+
+    async function resetMixer() {
+      stopPlayback();
+      for (const track of mixer.tracks) {
+        if (track.mediaNode) {
+          try { track.mediaNode.disconnect(); } catch (_) {}
+        }
+        if (track.audioEl) {
+          track.audioEl.pause();
+          track.audioEl.src = "";
+        }
+      }
+      tracksContainer.innerHTML = "";
+      mixerSection.classList.add("hidden");
+      playBtn.disabled = true;
+      pauseBtn.disabled = true;
+      stopBtn.disabled = true;
+      if (mixer.audioContext) {
+        try { await mixer.audioContext.close(); } catch (_) {}
+      }
+      mixer = {
+        audioContext: null,
+        tracks: [],
+        duration: 0,
+        isPlaying: false,
+        startedAt: 0,
+        pausedAt: 0,
+        rafId: null,
+        tempoPct: 100,
+        pitchSemitones: 0,
+        zoom: 1,
+        markers: [],
+        loopStart: null,
+        loopEnd: null,
+        loopEnabled: false,
+        jobId: "",
+        zipDownloadUrl: "",
+      };
+      tempoSlider.value = "100";
+      pitchSlider.value = "0";
+      zoomValue.textContent = "100%";
+      markersEl.innerHTML = "";
+      updateToolReadouts();
+      setTransport(0);
+    }
+
+    async function initMixer(jobId, stemUrls, stemDownloadUrls, zipDownloadUrl) {
+      await resetMixer();
+      const entries = Object.entries(stemUrls || {});
+      if (!entries.length) return;
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) throw new Error("Web Audio API is not supported in this browser.");
+      const audioContext = new AudioCtx();
+      const tracks = [];
+      for (const [key, url] of entries) {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`Failed loading ${key} stem.`);
+        const arrayBuffer = await response.arrayBuffer();
+        const buffer = await audioContext.decodeAudioData(arrayBuffer);
+        const audioEl = new Audio(url);
+        audioEl.preload = "auto";
+        audioEl.crossOrigin = "anonymous";
+        const mediaNode = audioContext.createMediaElementSource(audioEl);
+        const gainNode = audioContext.createGain();
+        mediaNode.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        tracks.push({
+          key,
+          url,
+          buffer,
+          gainNode,
+          mediaNode,
+          audioEl,
+          muted: false,
+          playhead: null,
+          markers: [],
+          downloadUrl: (stemDownloadUrls || {})[key] || "",
+        });
+      }
+      mixer.audioContext = audioContext;
+      mixer.tracks = tracks;
+      mixer.duration = Math.max(...tracks.map((track) => track.buffer.duration));
+      mixer.jobId = jobId;
+      mixer.zipDownloadUrl = zipDownloadUrl || "";
+      mixerSection.classList.remove("hidden");
+      playBtn.disabled = false;
+      pauseBtn.disabled = false;
+      stopBtn.disabled = false;
+      renderTracks();
+    }
+
+    playBtn.addEventListener("click", () => {
+      playFrom(currentOffset()).catch((err) => showError(err.message || "Could not start playback."));
+    });
+    pauseBtn.addEventListener("click", pausePlayback);
+    stopBtn.addEventListener("click", stopPlayback);
+    transportSeek.addEventListener("input", () => {
+      const offset = (Number(transportSeek.value) / 1000) * (mixer.duration || 0);
+      seekTo(offset).catch((err) => showError(err.message || "Failed to seek."));
+    });
+    tempoSlider.addEventListener("input", () => {
+      mixer.tempoPct = Number(tempoSlider.value);
+      updateToolReadouts();
+    });
+    tempoSlider.addEventListener("change", () => {
+      if (mixer.isPlaying) playFrom(currentOffset()).catch((err) => showError(err.message || "Failed to apply tempo."));
+    });
+    pitchSlider.addEventListener("input", () => {
+      mixer.pitchSemitones = Number(pitchSlider.value);
+      updateToolReadouts();
+    });
+    pitchSlider.addEventListener("change", () => {
+      if (mixer.isPlaying) playFrom(currentOffset()).catch((err) => showError(err.message || "Failed to apply pitch."));
+    });
+    zoomInBtn.addEventListener("click", () => {
+      mixer.zoom = Math.min(12, Number((mixer.zoom + 0.5).toFixed(2)));
+      updateToolReadouts();
+      redrawAllWaveforms();
+    });
+    zoomOutBtn.addEventListener("click", () => {
+      mixer.zoom = Math.max(1, Number((mixer.zoom - 0.5).toFixed(2)));
+      updateToolReadouts();
+      redrawAllWaveforms();
+    });
+    setLoopStartBtn.addEventListener("click", () => {
+      mixer.loopStart = currentOffset();
+      if (mixer.loopEnd !== null && mixer.loopEnd <= mixer.loopStart) mixer.loopEnd = null;
+      loopStartInput.value = formatSeconds(mixer.loopStart);
+      updateToolReadouts();
+      redrawAllWaveforms();
+    });
+    setLoopEndBtn.addEventListener("click", () => {
+      if (mixer.loopStart === null) {
+        mixer.loopStart = 0;
+      }
+      applyLoopRange(mixer.loopStart, currentOffset());
+    });
+    clearLoopBtn.addEventListener("click", () => {
+      mixer.loopStart = null;
+      mixer.loopEnd = null;
+      mixer.loopEnabled = false;
+      loopStartInput.value = "0.00";
+      loopEndInput.value = "0.00";
+      updateToolReadouts();
+      redrawAllWaveforms();
+    });
+    loopToggleBtn.addEventListener("click", () => {
+      mixer.loopEnabled = !mixer.loopEnabled;
+      if (mixer.loopEnabled && mixer.loopStart !== null && mixer.loopEnd !== null && mixer.loopEnd > mixer.loopStart) {
+        playFrom(mixer.loopStart).catch((err) => showError(err.message || "Failed to start loop."));
+      }
+      updateToolReadouts();
+    });
+    applyLoopRangeBtn.addEventListener("click", () => {
+      applyLoopRange(Number(loopStartInput.value), Number(loopEndInput.value));
+    });
+    loopStartInput.addEventListener("change", () => {
+      applyLoopRange(Number(loopStartInput.value), Number(loopEndInput.value));
+    });
+    loopEndInput.addEventListener("change", () => {
+      applyLoopRange(Number(loopStartInput.value), Number(loopEndInput.value));
+    });
+    downloadAllBtn.addEventListener("click", () => {
+      if (!mixer.zipDownloadUrl) return;
+      window.open(mixer.zipDownloadUrl, "_self");
+    });
+
+    async function pollStatus(jobId) {
+      const response = await fetch(`/status/${jobId}`);
+      if (!response.ok) throw new Error("Failed to fetch job status.");
+      const data = await response.json();
+
+      progressSection.classList.remove("hidden");
+      const displayProgress = data.status === "completed" ? 100 : Math.max(1, data.progress || 1);
+      progressFill.style.width = `${displayProgress}%`;
+      progressText.textContent = `${data.message || "Processing..."} (${displayProgress}%)`;
+
+      if (data.status === "failed") {
+        showError("Separation failed. Check job.log in the job folder.");
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+
+      if (data.status === "completed") {
+        initMixer(data.job_id, data.stem_urls, data.stem_download_urls, data.download_url || "").catch((err) => {
+          showError(err.message || "Split finished but mixer could not be loaded.");
+        });
+        card.classList.add("expanded");
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+    }
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      clearError();
+      card.classList.remove("expanded");
+      await resetMixer();
+      progressSection.classList.remove("hidden");
+      progressFill.style.width = "1%";
+      progressText.textContent = "Uploading file...";
+
+      const formData = new FormData(form);
+      const response = await fetch("/start", { method: "POST", body: formData });
+      const data = await response.json();
+
+      if (!response.ok || !data.ok) {
+        showError(data.error || "Upload failed.");
+        return;
+      }
+
+      if (pollTimer) clearInterval(pollTimer);
+      await pollStatus(data.job_id);
+      pollTimer = setInterval(() => {
+        pollStatus(data.job_id).catch((err) => {
+          showError(err.message || "Failed to check progress.");
+          if (pollTimer) clearInterval(pollTimer);
+          pollTimer = null;
+        });
+      }, 1500);
+    });
+  </script>
+</body>
+</html>

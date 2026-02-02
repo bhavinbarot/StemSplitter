@@ -16,4 +16,9 @@ torch>=1.8.1
 torchaudio>=0.8,<2.1
 tqdm
 treetable
+numpy<2
 soundfile>=0.10.3;sys_platform=="win32"
+# Requires system package: ffmpeg
+yt-dlp>=2024.10.7
+ffmpeg-python>=0.2.0
+Flask>=3.0
