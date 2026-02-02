@@ -94,3 +94,15 @@ pip3 install -r requirements.txt
 python3 -m demucs.webapp
 
 Then open: http://127.0.0.1:5000
+
+Fly.io deploy:
+
+1) Install and login Fly CLI:
+fly auth login
+
+2) Create app + volume (first time):
+fly apps create stemsplitter-bhavin
+fly volumes create stems_data --size 20 --region iad --app stemsplitter-bhavin
+
+3) Deploy:
+fly deploy

@@ -1,0 +1,17 @@
+.git
+.github
+venv
+web_jobs
+SourceAudio
+demucs/SourceAudio
+single_video_downloads
+Output
+*.mp3
+*.wav
+*.flac
+*.m4a
+*.ogg
+*.tar.gz
+__pycache__
+*.pyc
+.DS_Store

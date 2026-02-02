@@ -1,3 +1,4 @@
+import os
 import re
 import subprocess
 import sys
@@ -13,7 +14,7 @@ from flask import Flask, abort, jsonify, render_template, request, send_file
 
 app = Flask(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-JOB_ROOT = PROJECT_ROOT / "web_jobs"
+JOB_ROOT = Path(os.getenv("WEB_JOBS_ROOT", str(PROJECT_ROOT / "web_jobs")))
 ALLOWED_SUFFIXES = {".mp3", ".mpe", ".wav", ".flac", ".m4a", ".aac", ".ogg"}
 PROGRESS_RE = re.compile(r"(\d{1,3})%\|")
 jobs = {}
