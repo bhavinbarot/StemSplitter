@@ -1,4 +1,4 @@
-app = "stemsplitter-bhavin"
+app = "stemsplitter"
 primary_region = "iad"
 
 [build]

@@ -10,7 +10,7 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt gunicorn
 
-COPY . .
+COPY demucs ./demucs
 
 ENV WEB_JOBS_ROOT=/data/web_jobs
 
