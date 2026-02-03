@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stem Splitter Login</title>
+  <style>
+    :root { color-scheme: light; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      font-family: "Segoe UI", Roboto, sans-serif;
+      background: linear-gradient(160deg, #eff6ff 0%, #f8fafc 100%);
+      color: #111827;
+    }
+    .card {
+      width: min(92vw, 420px);
+      background: #fff;
+      border: 1px solid #dbe4f4;
+      border-radius: 14px;
+      padding: 28px;
+      box-shadow: 0 8px 28px rgba(15, 23, 42, 0.09);
+      text-align: center;
+    }
+    .brand {
+      width: 64px;
+      height: 64px;
+      object-fit: contain;
+      margin: 0 auto 14px;
+      display: block;
+    }
+    h1 {
+      margin: 0 0 8px 0;
+      font-size: 24px;
+    }
+    p {
+      margin: 0 0 18px 0;
+      color: #4b5563;
+      font-size: 14px;
+    }
+    .google-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      width: 100%;
+      padding: 12px 14px;
+      border-radius: 10px;
+      border: 1px solid #d1d5db;
+      background: #fff;
+      color: #111827;
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .google-dot {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: conic-gradient(from 45deg, #4285f4 0 25%, #34a853 25% 50%, #fbbc05 50% 75%, #ea4335 75% 100%);
+    }
+    .note {
+      margin-top: 14px;
+      font-size: 12px;
+      color: #6b7280;
+    }
+    .error {
+      margin-top: 12px;
+      font-size: 13px;
+      color: #b91c1c;
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      border-radius: 8px;
+      padding: 9px;
+    }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <img class="brand" src="/ui-icon/brand" alt="Stem Splitter">
+    <h1>Welcome</h1>
+    <p>Sign in with Google to use Stem Splitter.</p>
+    {% if auth_enabled %}
+      <a class="google-btn" href="/auth/google">
+        <span class="google-dot" aria-hidden="true"></span>
+        Continue with Google
+      </a>
+      <div class="note">Only Google authentication is enabled. No local accounts required.</div>
+    {% else %}
+      <div class="error">Google login is not configured on server. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.</div>
+    {% endif %}
+  </main>
+</body>
+</html>

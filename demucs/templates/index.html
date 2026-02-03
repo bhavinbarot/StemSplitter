@@ -54,6 +54,35 @@
       object-fit: contain;
       border-radius: 8px;
     }
+    .user-bar {
+      margin-left: auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      color: #334155;
+    }
+    .user-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: #f8fafc;
+    }
+    .user-avatar {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 1px solid #dbe3f2;
+    }
+    .logout-link {
+      text-decoration: none;
+      color: #0b5cff;
+      font-weight: 600;
+    }
     p {
       color: var(--subtle);
       margin-top: 0;
@@ -200,7 +229,7 @@
     }
     .tool-row {
       display: grid;
-      grid-template-columns: 120px 1fr auto;
+      grid-template-columns: 120px 1fr auto auto;
       gap: 10px;
       align-items: center;
       font-size: 13px;
@@ -290,6 +319,26 @@
       width: 16px;
       height: 16px;
       fill: currentColor;
+    }
+    .slider-reset-btn {
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: #ffffff;
+      color: #334155;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .slider-reset-btn:hover {
+      background: #f8fafc;
+    }
+    .reset-glyph {
+      font-size: 16px;
+      font-weight: 700;
+      line-height: 1;
     }
     .zoom-glyph {
       width: 18px;
@@ -490,6 +539,15 @@
     <div class="brand">
       <img src="/ui-icon/brand" alt="Stem Splitter">
       <h1>Stem Splitter</h1>
+      {% if current_user %}
+      <div class="user-bar">
+        <span class="user-chip">
+          {% if current_user.picture %}<img class="user-avatar" src="{{ current_user.picture }}" alt="">{% endif %}
+          <span>{{ current_user.name or current_user.email }}</span>
+        </span>
+        <a class="logout-link" href="/logout">Logout</a>
+      </div>
+      {% endif %}
     </div>
     <p>Upload a song, pick split mode and quality, then preview, mix, and download individual stems or a full ZIP.</p>
 
@@ -560,22 +618,28 @@
           <strong>Tempo</strong>
           <input id="tempo-slider" type="range" min="50" max="150" step="1" value="100">
           <code id="tempo-value">100%</code>
+          <button type="button" id="tempo-reset-btn" class="slider-reset-btn" title="Reset tempo" aria-label="Reset tempo">
+            <span class="reset-glyph" aria-hidden="true">↺</span>
+          </button>
         </div>
         <div class="tool-row">
           <strong>Pitch</strong>
           <input id="pitch-slider" type="range" min="-12" max="12" step="1" value="0">
           <code id="pitch-value">0 semitones</code>
+          <button type="button" id="pitch-reset-btn" class="slider-reset-btn" title="Reset pitch" aria-label="Reset pitch">
+            <span class="reset-glyph" aria-hidden="true">↺</span>
+          </button>
         </div>
         <div class="loop-row">
           <button type="button" id="set-loop-start" class="ghost-btn">Set Loop A</button>
           <button type="button" id="set-loop-end" class="ghost-btn">Set Loop B</button>
+          <button type="button" id="loop-toggle-btn" class="ghost-btn">Loop Playback Off</button>
           <button type="button" id="clear-loop" class="icon-btn" title="Clear loop" aria-label="Clear loop">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6a1 1 0 0 1 1 1v1h4a1 1 0 1 1 0 2h-1.08l-.83 11.22A2 2 0 0 1 16.1 20H7.9a2 2 0 0 1-1.99-1.78L5.08 7H4a1 1 0 1 1 0-2h4V4a1 1 0 0 1 1-1Zm1 2h4v0h-4v0Zm5.99 2H8.01l.81 10.9a.5.5 0 0 0 .5.45h4.36a.5.5 0 0 0 .5-.45L15.99 7ZM10 9a1 1 0 0 1 1 1v5a1 1 0 1 1-2 0v-5a1 1 0 0 1 1-1Zm4 0a1 1 0 0 1 1 1v5a1 1 0 1 1-2 0v-5a1 1 0 0 1 1-1Z"/></svg>
           </button>
           <input id="loop-start-input" class="loop-number" type="number" min="0" step="0.1" value="0" title="Loop start (seconds)">
           <input id="loop-end-input" class="loop-number" type="number" min="0" step="0.1" value="0" title="Loop end (seconds)">
           <button type="button" id="apply-loop-range" class="ghost-btn">Apply Range</button>
-          <button type="button" id="loop-toggle-btn" class="ghost-btn">Loop Playback Off</button>
           <code id="loop-value">Loop: Off</code>
         </div>
         <div>
@@ -621,6 +685,8 @@
     const transportTime = document.getElementById("transport-time");
     const tempoSlider = document.getElementById("tempo-slider");
     const pitchSlider = document.getElementById("pitch-slider");
+    const tempoResetBtn = document.getElementById("tempo-reset-btn");
+    const pitchResetBtn = document.getElementById("pitch-reset-btn");
     const zoomOutBtn = document.getElementById("zoom-out-btn");
     const zoomInBtn = document.getElementById("zoom-in-btn");
     const tempoValue = document.getElementById("tempo-value");
@@ -702,19 +768,65 @@
       return mixer.tempoPct / 100;
     }
 
-    function effectivePitchRate() {
-      return 2 ** (mixer.pitchSemitones / 12);
-    }
-
     function applyPlaybackSettings(track) {
       if (!track.audioEl) return;
-      const hasPitchShift = mixer.pitchSemitones !== 0;
-      const baseRate = effectiveTempoRate();
-      if ("preservesPitch" in track.audioEl) track.audioEl.preservesPitch = !hasPitchShift;
-      if ("webkitPreservesPitch" in track.audioEl) track.audioEl.webkitPreservesPitch = !hasPitchShift;
-      if ("mozPreservesPitch" in track.audioEl) track.audioEl.mozPreservesPitch = !hasPitchShift;
-      track.audioEl.playbackRate = hasPitchShift ? baseRate * effectivePitchRate() : baseRate;
+      const pitchComp = Number.isFinite(track.pitchTempoComp) ? track.pitchTempoComp : 1;
+      track.audioEl.playbackRate = effectiveTempoRate() * pitchComp;
+      if ("preservesPitch" in track.audioEl) track.audioEl.preservesPitch = true;
+      if ("webkitPreservesPitch" in track.audioEl) track.audioEl.webkitPreservesPitch = true;
+      if ("mozPreservesPitch" in track.audioEl) track.audioEl.mozPreservesPitch = true;
       track.audioEl.volume = track.muted ? 0 : 1;
+    }
+
+    async function loadPitchAdjustedTrack(track, semitones) {
+      const pitchUrl = `${track.url}${track.url.includes("?") ? "&" : "?"}pitch=${encodeURIComponent(semitones)}`;
+      const response = await fetch(pitchUrl);
+      if (!response.ok) throw new Error(`Failed to apply pitch for ${track.key}.`);
+      const arrayBuffer = await response.arrayBuffer();
+      const decoded = await mixer.audioContext.decodeAudioData(arrayBuffer.slice(0));
+      const blob = new Blob([arrayBuffer], { type: response.headers.get("content-type") || "audio/mpeg" });
+      const blobUrl = URL.createObjectURL(blob);
+      if (track.activeUrl && track.activeUrl.startsWith("blob:")) {
+        URL.revokeObjectURL(track.activeUrl);
+      }
+      track.activeUrl = blobUrl;
+      track.buffer = decoded;
+      track.pitchTempoComp = decoded.duration > 0 ? (track.sourceDuration / decoded.duration) : 1;
+      track.audioEl.src = blobUrl;
+      await new Promise((resolve, reject) => {
+        const onReady = () => {
+          track.audioEl.removeEventListener("loadedmetadata", onReady);
+          track.audioEl.removeEventListener("error", onFail);
+          resolve();
+        };
+        const onFail = () => {
+          track.audioEl.removeEventListener("loadedmetadata", onReady);
+          track.audioEl.removeEventListener("error", onFail);
+          reject(new Error(`Audio reload failed for ${track.key}.`));
+        };
+        track.audioEl.addEventListener("loadedmetadata", onReady);
+        track.audioEl.addEventListener("error", onFail);
+        track.audioEl.load();
+      });
+      applyPlaybackSettings(track);
+    }
+
+    async function applyPitchShift() {
+      if (!mixer.audioContext || !mixer.tracks.length) return;
+      const wasPlaying = mixer.isPlaying;
+      const offset = currentOffset();
+      pausePlayback();
+      for (const track of mixer.tracks) {
+        await loadPitchAdjustedTrack(track, mixer.pitchSemitones);
+      }
+      mixer.duration = Math.max(...mixer.tracks.map((track) => track.buffer.duration));
+      redrawAllWaveforms();
+      if (wasPlaying) {
+        await playFrom(Math.min(offset, mixer.duration || offset));
+      } else {
+        mixer.pausedAt = Math.min(offset, mixer.duration || offset);
+        setTransport(mixer.pausedAt);
+      }
     }
 
     function stopTracks(resetPosition = false) {
@@ -854,8 +966,8 @@
       } else {
         loopValue.textContent = "Loop: Off";
       }
-      loopToggleBtn.textContent = mixer.loopEnabled ? "Loop Playback On" : "Loop Playback Off";
       loopToggleBtn.classList.toggle("active", mixer.loopEnabled);
+      loopToggleBtn.textContent = mixer.loopEnabled ? "Loop Playback On" : "Loop Playback Off";
       setLoopStartBtn.classList.toggle("active", mixer.loopStart !== null);
       setLoopEndBtn.classList.toggle("active", mixer.loopEnd !== null);
     }
@@ -1040,6 +1152,9 @@
           track.audioEl.pause();
           track.audioEl.src = "";
         }
+        if (track.activeUrl && track.activeUrl.startsWith("blob:")) {
+          URL.revokeObjectURL(track.activeUrl);
+        }
       }
       tracksContainer.innerHTML = "";
       mixerSection.classList.add("hidden");
@@ -1098,7 +1213,10 @@
         tracks.push({
           key,
           url,
+          activeUrl: url,
           buffer,
+          sourceDuration: buffer.duration,
+          pitchTempoComp: 1,
           gainNode,
           mediaNode,
           audioEl,
@@ -1131,17 +1249,27 @@
     });
     tempoSlider.addEventListener("input", () => {
       mixer.tempoPct = Number(tempoSlider.value);
+      for (const track of mixer.tracks) applyPlaybackSettings(track);
       updateToolReadouts();
-    });
-    tempoSlider.addEventListener("change", () => {
-      if (mixer.isPlaying) playFrom(currentOffset()).catch((err) => showError(err.message || "Failed to apply tempo."));
     });
     pitchSlider.addEventListener("input", () => {
       mixer.pitchSemitones = Number(pitchSlider.value);
       updateToolReadouts();
     });
     pitchSlider.addEventListener("change", () => {
-      if (mixer.isPlaying) playFrom(currentOffset()).catch((err) => showError(err.message || "Failed to apply pitch."));
+      applyPitchShift().catch((err) => showError(err.message || "Failed to apply pitch."));
+    });
+    tempoResetBtn.addEventListener("click", () => {
+      mixer.tempoPct = 100;
+      tempoSlider.value = "100";
+      for (const track of mixer.tracks) applyPlaybackSettings(track);
+      updateToolReadouts();
+    });
+    pitchResetBtn.addEventListener("click", () => {
+      mixer.pitchSemitones = 0;
+      pitchSlider.value = "0";
+      updateToolReadouts();
+      applyPitchShift().catch((err) => showError(err.message || "Failed to reset pitch."));
     });
     zoomInBtn.addEventListener("click", () => {
       mixer.zoom = Math.min(12, Number((mixer.zoom + 0.5).toFixed(2)));
