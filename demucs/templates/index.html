@@ -114,7 +114,7 @@
       font-size: 14px;
       cursor: pointer;
     }
-    select, input[type="file"] {
+    select, input[type="file"], input[type="url"] {
       width: 100%;
       box-sizing: border-box;
       padding: 10px 12px;
@@ -419,6 +419,32 @@
       justify-content: center;
       padding: 0;
     }
+    .field-label-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .url-download-btn {
+      background: transparent;
+      border: 0;
+      width: 26px;
+      height: 26px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      opacity: 0.45;
+      cursor: default;
+    }
+    .url-download-btn.ready {
+      opacity: 1;
+      cursor: pointer;
+    }
+    #source_url {
+      min-height: 44px;
+      font-size: 15px;
+    }
     .wave-wrap {
       position: relative;
       border-radius: 8px;
@@ -542,14 +568,13 @@
       {% if current_user %}
       <div class="user-bar">
         <span class="user-chip">
-          {% if current_user.picture %}<img class="user-avatar" src="{{ current_user.picture }}" alt="">{% endif %}
           <span>{{ current_user.name or current_user.email }}</span>
         </span>
         <a class="logout-link" href="/logout">Logout</a>
       </div>
       {% endif %}
     </div>
-    <p>Upload a song, pick split mode and quality, then preview, mix, and download individual stems or a full ZIP.</p>
+    <p>Upload a song or paste a video link, pick split mode and quality, then preview, mix, and download individual stems or a full ZIP.</p>
 
     <form id="split-form" action="/start" method="post" enctype="multipart/form-data">
       <div>
@@ -559,7 +584,22 @@
           name="audio_file"
           type="file"
           accept=".mp3,.mpe,.wav,.flac,.m4a,.aac,.ogg,audio/*"
-          required
+        >
+      </div>
+      <div>
+        <div class="field-label-row">
+          <label for="source_url">Or paste video URL</label>
+          <button type="button" id="source-download-btn" class="url-download-btn" title="Download source MP3" aria-label="Download source MP3" disabled>
+            <img class="download-glyph" src="/ui-icon/download-stem" alt="">
+          </button>
+        </div>
+        <input
+          id="source_url"
+          name="source_url"
+          type="url"
+          placeholder="https://www.youtube.com/watch?v=..."
+          inputmode="url"
+          autocomplete="off"
         >
       </div>
       <details class="advanced-settings">
@@ -668,7 +708,11 @@
     <div class="footer-version">UI {{ ui_version }}</div>
   </main>
   <script>
+    const API_BASE = "/api/v1";
     const form = document.getElementById("split-form");
+    const audioFileInput = document.getElementById("audio_file");
+    const sourceUrlInput = document.getElementById("source_url");
+    const sourceDownloadBtn = document.getElementById("source-download-btn");
     const card = document.querySelector(".card");
     const statusErr = document.getElementById("status-err");
     const statusOk = document.getElementById("status-ok");
@@ -702,6 +746,7 @@
     const loopValue = document.getElementById("loop-value");
     const markersEl = document.getElementById("markers");
     let pollTimer = null;
+    let sourceDownloadUrl = "";
     let mixer = {
       audioContext: null,
       tracks: [],
@@ -732,6 +777,12 @@
       statusErr.classList.add("hidden");
     }
 
+    function setSourceDownloadUrl(url) {
+      sourceDownloadUrl = url || "";
+      sourceDownloadBtn.disabled = !sourceDownloadUrl;
+      sourceDownloadBtn.classList.toggle("ready", !!sourceDownloadUrl);
+    }
+
     function formatTime(seconds) {
       const rounded = Math.max(0, Math.floor(seconds));
       const mins = String(Math.floor(rounded / 60)).padStart(2, "0");
@@ -748,7 +799,7 @@
         start: String(mixer.loopStart ?? 0),
         end: String(mixer.loopEnd ?? 0),
       });
-      return `/download-loop/${mixer.jobId}/${trackKey}?${params.toString()}`;
+      return `${API_BASE}/jobs/${mixer.jobId}/stems/${trackKey}/loop?${params.toString()}`;
     }
 
     function applyLoopRange(start, end) {
@@ -1186,12 +1237,14 @@
       pitchSlider.value = "0";
       zoomValue.textContent = "100%";
       markersEl.innerHTML = "";
+      setSourceDownloadUrl("");
       updateToolReadouts();
       setTransport(0);
     }
 
-    async function initMixer(jobId, stemUrls, stemDownloadUrls, zipDownloadUrl) {
+    async function initMixer(jobId, stemUrls, stemDownloadUrls, zipDownloadUrl, sourceUrl) {
       await resetMixer();
+      setSourceDownloadUrl(sourceUrl || "");
       const entries = Object.entries(stemUrls || {});
       if (!entries.length) return;
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -1323,11 +1376,16 @@
       if (!mixer.zipDownloadUrl) return;
       window.open(mixer.zipDownloadUrl, "_self");
     });
+    sourceDownloadBtn.addEventListener("click", () => {
+      if (!sourceDownloadUrl) return;
+      window.open(sourceDownloadUrl, "_self");
+    });
 
     async function pollStatus(jobId) {
-      const response = await fetch(`/status/${jobId}`);
+      const response = await fetch(`${API_BASE}/jobs/${jobId}`);
       if (!response.ok) throw new Error("Failed to fetch job status.");
       const data = await response.json();
+      setSourceDownloadUrl(data.source_download_url || "");
 
       progressSection.classList.remove("hidden");
       const displayProgress = data.status === "completed" ? 100 : Math.max(1, data.progress || 1);
@@ -1341,7 +1399,13 @@
       }
 
       if (data.status === "completed") {
-        initMixer(data.job_id, data.stem_urls, data.stem_download_urls, data.download_url || "").catch((err) => {
+        initMixer(
+          data.job_id,
+          data.stem_urls,
+          data.stem_download_urls,
+          data.download_url || "",
+          data.source_download_url || "",
+        ).catch((err) => {
           showError(err.message || "Split finished but mixer could not be loaded.");
         });
         card.classList.add("expanded");
@@ -1352,31 +1416,54 @@
 
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
+      const hasFile = !!(audioFileInput && audioFileInput.files && audioFileInput.files.length);
+      const hasUrl = !!(sourceUrlInput && sourceUrlInput.value.trim());
+      if (!hasFile && !hasUrl) {
+        showError("Upload an audio file or paste a video URL.");
+        return;
+      }
+      if (hasFile && hasUrl) {
+        showError("Use either file upload or video URL, not both.");
+        return;
+      }
+
       clearError();
       card.classList.remove("expanded");
       await resetMixer();
       progressSection.classList.remove("hidden");
       progressFill.style.width = "1%";
-      progressText.textContent = "Uploading file...";
+      progressText.textContent = hasFile ? "Uploading file..." : "Submitting link...";
 
-      const formData = new FormData(form);
-      const response = await fetch("/start", { method: "POST", body: formData });
-      const data = await response.json();
+      try {
+        const formData = new FormData(form);
+        const response = await fetch(`${API_BASE}/jobs`, { method: "POST", body: formData });
+        const rawBody = await response.text();
+        let data = {};
+        try {
+          data = rawBody ? JSON.parse(rawBody) : {};
+        } catch (_) {
+          data = {};
+        }
 
-      if (!response.ok || !data.ok) {
-        showError(data.error || "Upload failed.");
-        return;
+        if (!response.ok || !data.ok) {
+          const message = data.error || `Submission failed (${response.status}).`;
+          showError(message);
+          return;
+        }
+
+        if (pollTimer) clearInterval(pollTimer);
+        await pollStatus(data.job_id);
+        pollTimer = setInterval(() => {
+          pollStatus(data.job_id).catch((err) => {
+            showError(err.message || "Failed to check progress.");
+            if (pollTimer) clearInterval(pollTimer);
+            pollTimer = null;
+          });
+        }, 1500);
+      } catch (err) {
+        const message = err && err.message ? err.message : "Network error while submitting request.";
+        showError(message);
       }
-
-      if (pollTimer) clearInterval(pollTimer);
-      await pollStatus(data.job_id);
-      pollTimer = setInterval(() => {
-        pollStatus(data.job_id).catch((err) => {
-          showError(err.message || "Failed to check progress.");
-          if (pollTimer) clearInterval(pollTimer);
-          pollTimer = null;
-        });
-      }, 1500);
     });
   </script>
 </body>
