@@ -17,6 +17,7 @@ from urllib.parse import urlparse
 
 from authlib.integrations.flask_client import OAuth
 from flask import Flask, abort, jsonify, redirect, render_template, request, send_file, session, url_for
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 if __package__:
     from .video_downloader import VideoDownloadError, YtDlpVideoDownloader
@@ -27,6 +28,8 @@ else:
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "change-this-dev-secret")
 app.logger.setLevel(logging.INFO)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)  # type: ignore[assignment]
+app.config["PREFERRED_URL_SCHEME"] = "https"
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 JOB_ROOT = Path(os.getenv("WEB_JOBS_ROOT", str(PROJECT_ROOT / "web_jobs")))
 LOGIN_ROOT = Path(os.getenv("WEB_LOGINS_ROOT", str(PROJECT_ROOT / "web_logins")))
@@ -226,7 +229,7 @@ def auth_google():
     app.logger.info("google_login_start ip=%s next=%s", request.remote_addr, request.args.get("next", ""))
     _write_login_event("google_login_start", next=request.args.get("next", ""))
     session["next_url"] = request.args.get("next") or url_for("index")
-    redirect_uri = url_for("auth_google_callback", _external=True)
+    redirect_uri = url_for("auth_google_callback", _external=True, _scheme="https")
     return oauth.google.authorize_redirect(redirect_uri, prompt="select_account")
 
 
