@@ -3,8 +3,8 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
-    "build:css": "tailwindcss -i ./demucs/static/src/input.css -o ./demucs/static/css/tailwind.css --minify",
-    "watch:css": "tailwindcss -i ./demucs/static/src/input.css -o ./demucs/static/css/tailwind.css --watch"
+    "build:css": "tailwindcss -i ./stemsplitter/static/src/input.css -o ./stemsplitter/static/css/tailwind.css --minify",
+    "watch:css": "tailwindcss -i ./stemsplitter/static/src/input.css -o ./stemsplitter/static/css/tailwind.css --watch"
   },
   "devDependencies": {
     "@tailwindcss/cli": "^4.2.1",

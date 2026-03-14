@@ -1,7 +1,7 @@
 module.exports = {
   content: [
-    "./demucs/templates/**/*.html",
-    "./demucs/**/*.py",
+    "./stemsplitter/templates/**/*.html",
+    "./stemsplitter/**/*.py",
   ],
   theme: {
     extend: {
