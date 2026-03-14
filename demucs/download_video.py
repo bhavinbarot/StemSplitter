@@ -53,9 +53,11 @@ def main() -> int:
     try:
         results = downloader.download(args.url, Path(args.output_dir))
     except VideoDownloadError as exc:
+        print(f"Diagnostics: {downloader.diagnostics_summary()}")
         print(f"Download failed: {exc}")
         return 1
 
+    print(f"Diagnostics: {downloader.diagnostics_summary()}")
     print(f"Downloaded {len(results)} file(s):")
     for item in results:
         print(f"- {item.file_path} (title: {item.title})")
