@@ -43,6 +43,7 @@
       backdrop-filter: blur(10px);
       padding: 18px 14px;
       display: grid;
+      grid-template-columns: minmax(0, 1fr);
       grid-template-rows: auto auto auto minmax(0, 1fr);
       gap: 14px;
       min-width: 0;
@@ -240,14 +241,18 @@
     }
     .project-list-wrap {
       min-height: 0;
-      overflow: auto;
+      overflow-y: auto;
+      overflow-x: hidden;
       display: grid;
+      grid-template-columns: minmax(0, 1fr);
       gap: 10px;
       align-content: start;
       padding-right: 2px;
     }
     .project-item {
       width: 100%;
+      box-sizing: border-box;
+      min-width: 0;
       text-align: left;
       border: 1px solid var(--border);
       background: #ffffff;
@@ -290,7 +295,7 @@
       overflow-x: hidden;
     }
     .main-pane.home-mode {
-      align-items: center;
+      align-items: flex-start;
     }
     .card {
       width: min(100%, 1480px);
@@ -363,10 +368,11 @@
     .split-panel {
       min-height: min(760px, calc(100vh - 48px));
       display: grid;
-      align-content: center;
+      align-content: start;
       justify-items: center;
       gap: 28px;
       width: 100%;
+      padding-top: 48px;
     }
     .project-loading-panel {
       min-height: min(760px, calc(100vh - 48px));
@@ -558,6 +564,7 @@
       font-weight: 600;
       white-space: nowrap;
       min-width: 180px;
+      align-self: center;
       box-shadow: 0 12px 24px rgba(37, 99, 235, 0.22);
       transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease, opacity 0.18s ease;
     }
@@ -641,6 +648,90 @@
       width: 0%;
       background: linear-gradient(90deg, #0b5cff, #11a0ff);
       transition: width 0.4s ease;
+    }
+    .progress-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0;
+    }
+    .progress-header h3 {
+      margin: 0;
+    }
+    .bpm-badge {
+      display: inline-block;
+      background: #fff7ed;
+      border: 1.5px solid #fed7aa;
+      border-radius: 999px;
+      color: #c2410c;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 9px;
+      letter-spacing: 0.02em;
+      cursor: default;
+      margin-top: 3px;
+      white-space: nowrap;
+    }
+    .bpm-badge--pending, .key-badge--pending {
+      opacity: 0.55;
+      font-style: italic;
+      animation: badge-pulse 1.4s ease-in-out infinite;
+    }
+    @keyframes badge-pulse {
+      0%, 100% { opacity: 0.55; }
+      50%       { opacity: 0.85; }
+    }
+    .key-badge {
+      display: inline-block;
+      background: #f0fdf4;
+      border: 1.5px solid #86efac;
+      border-radius: 999px;
+      color: #15803d;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 9px;
+      letter-spacing: 0.02em;
+      cursor: default;
+      margin-top: 3px;
+      white-space: nowrap;
+    }
+    .reanalyze-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: transparent;
+      border: 1.5px solid #86efac;
+      border-radius: 999px;
+      color: #15803d;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      cursor: pointer;
+      margin-top: 3px;
+      white-space: nowrap;
+      transition: background 0.15s;
+      line-height: 1.4;
+    }
+    .reanalyze-btn:hover {
+      background: #dcfce7;
+    }
+    .cancel-job-btn {
+      background: transparent;
+      border: 1.5px solid #f87171;
+      border-radius: 999px;
+      color: #dc2626;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 4px 12px;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+    .cancel-job-btn:hover {
+      background: #fef2f2;
+    }
+    .cancel-job-btn.cancelling {
+      opacity: 0.55;
+      cursor: default;
     }
     .status {
       padding: 12px;
@@ -932,21 +1023,38 @@
       gap: 10px;
     }
     .url-download-btn {
-      background: transparent;
-      border: 0;
-      width: 26px;
-      height: 26px;
       display: none;
       align-items: center;
-      justify-content: center;
-      padding: 0;
-      opacity: 0.45;
+      gap: 7px;
+      background: #f0f6ff;
+      border: 1.5px solid #b8d0ff;
+      border-radius: 999px;
+      padding: 6px 14px 6px 10px;
+      color: #1a56db;
+      font-size: 13px;
+      font-weight: 600;
       cursor: default;
+      opacity: 0.45;
+      white-space: nowrap;
+      flex-shrink: 0;
+      transition: background 0.15s, box-shadow 0.15s;
+    }
+    .url-download-btn .download-glyph {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+    }
+    .url-download-label {
+      line-height: 1;
     }
     .url-download-btn.ready:not(.hidden) {
       display: inline-flex;
       opacity: 1;
       cursor: pointer;
+    }
+    .url-download-btn.ready:hover {
+      background: #ddeaff;
+      box-shadow: 0 2px 8px rgba(37, 99, 235, 0.15);
     }
     #source_url {
       min-height: 44px;
@@ -959,6 +1067,7 @@
       background: #ffffff;
       color: #0b5cff;
       border: 1px solid #0b5cff;
+      justify-self: start;
     }
     .secondary-btn:hover {
       background: #f3f7ff;
@@ -1876,7 +1985,7 @@
                   id="source_url"
                   name="source_url"
                   type="url"
-                  placeholder="Paste a YouTube or Audio URL"
+                  placeholder="Paste a URL"
                   inputmode="url"
                   autocomplete="off"
                 >
@@ -1895,6 +2004,7 @@
           >
           <button type="button" id="source-download-btn" class="url-download-btn hidden" title="Download source MP3" aria-label="Download source MP3" disabled>
             <img class="download-glyph" src="/ui-icon/download-stem" alt="">
+            <span class="url-download-label">Download MP3</span>
           </button>
           <input id="url_action" name="url_action" type="hidden" value="split">
           <details class="advanced-settings">
@@ -1927,15 +2037,21 @@
         </form>
       </div>
 
-      <div id="status-err" class="status err hidden"></div>
-      <div id="status-ok" class="status ok hidden"></div>
+    </section>
 
-      <section id="progress-section" class="hidden">
-        <h3>Progress</h3>
+    <div id="status-err" class="status err hidden" style="width:min(100%,960px);margin:8px auto 0;"></div>
+    <div id="status-ok" class="status ok hidden" style="width:min(100%,960px);margin:8px auto 0;"></div>
+
+    <section id="progress-section" class="hidden" style="width:min(100%,960px);margin:0 auto;padding:0 0 32px;">
+        <div class="progress-header">
+          <h3>Progress</h3>
+          <button type="button" id="cancel-job-btn" class="cancel-job-btn hidden" title="Cancel separation">
+            ✕ Cancel
+          </button>
+        </div>
         <div class="progress-wrap"><div id="progress-fill" class="progress-fill"></div></div>
         <p id="progress-text">Queued...</p>
       </section>
-    </section>
 
     <section id="project-loading-panel" class="project-loading-panel hidden" aria-live="polite">
       <div class="project-loading-card">
@@ -1957,10 +2073,8 @@
         <div class="transport-meta">
           <div class="transport-controls">
             <button type="button" id="play-btn" class="transport-btn primary" aria-label="Play" title="Play" disabled>
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.14v13.72a1 1 0 0 0 1.54.84l10.3-6.86a1 1 0 0 0 0-1.66L9.54 4.3A1 1 0 0 0 8 5.14Z"/></svg>
-            </button>
-            <button type="button" id="pause-btn" class="transport-btn secondary" aria-label="Pause" title="Pause" disabled>
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5a1 1 0 0 1 1-1h2.5a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V5Zm5.5 0a1 1 0 0 1 1-1H16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-2.5a1 1 0 0 1-1-1V5Z"/></svg>
+              <svg id="play-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.14v13.72a1 1 0 0 0 1.54.84l10.3-6.86a1 1 0 0 0 0-1.66L9.54 4.3A1 1 0 0 0 8 5.14Z"/></svg>
+              <svg id="pause-icon" viewBox="0 0 24 24" aria-hidden="true" style="display:none"><path d="M7 5a1 1 0 0 1 1-1h2.5a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V5Zm5.5 0a1 1 0 0 1 1-1H16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-2.5a1 1 0 0 1-1-1V5Z"/></svg>
             </button>
             <button type="button" id="stop-btn" class="transport-btn secondary" aria-label="Stop" title="Stop" disabled>
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 6a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1H7Z"/></svg>
@@ -2044,7 +2158,7 @@
         </div>
       </div>
     </section>
-    <div class="footer-version">UI {{ ui_version }}</div>
+    <div class="footer-version">UI {{ ui_version }} &nbsp;·&nbsp; {{ compute_device }}</div>
   </main>
     </div>
   </div>
@@ -2082,6 +2196,7 @@
     const progressSection = document.getElementById("progress-section");
     const progressFill = document.getElementById("progress-fill");
     const progressText = document.getElementById("progress-text");
+    const cancelJobBtn = document.getElementById("cancel-job-btn");
     const projectLoadingPanel = document.getElementById("project-loading-panel");
     const mixerSection = document.getElementById("mixer-section");
     const exportBar = document.getElementById("export-bar");
@@ -2089,7 +2204,8 @@
     const downloadMixBtn = document.getElementById("download-mix-btn");
     const downloadAllBtn = document.getElementById("download-all-btn");
     const playBtn = document.getElementById("play-btn");
-    const pauseBtn = document.getElementById("pause-btn");
+    const playIcon = document.getElementById("play-icon");
+    const pauseIcon = document.getElementById("pause-icon");
     const stopBtn = document.getElementById("stop-btn");
     const transportSeek = document.getElementById("transport-seek");
     const transportTime = document.getElementById("transport-time");
@@ -2122,6 +2238,7 @@
     let isProjectLoading = false;
     let isPitchLoading = false;
     let pollTimer = null;
+    let currentJobId = null;
     let metadataSaveTimer = null;
     let isRestoringProjectState = false;
     let sourceDownloadUrl = "";
@@ -2193,8 +2310,143 @@
       statusOk.classList.add("hidden");
     }
 
+    function setCancelBtnVisible(visible) {
+      if (!cancelJobBtn) return;
+      cancelJobBtn.classList.toggle("hidden", !visible);
+      cancelJobBtn.classList.remove("cancelling");
+      cancelJobBtn.disabled = false;
+    }
+
     function clampSidebarWidth(value) {
       return Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, Math.round(value)));
+    }
+
+    // ── BPM / Key auto-analysis for old projects ──────────────────────────────
+    let analyseTimer = null;
+
+    function _maybeShowReanalyzeBtn(jobId) {
+      // Shows a "Re-analyse" button on the vocals track when a project already
+      // has BPM/key data but is missing the note timeline (processed before that
+      // feature was added).
+      for (const track of mixer.tracks) {
+        if (track.key !== "vocals") continue;
+        const nameBlock = track.row?.querySelector(".track-name-block");
+        if (!nameBlock || nameBlock.querySelector(".reanalyze-btn")) continue;
+        if (!mixer.key) continue;                                // no key yet — auto-analyse will handle it
+        if (track.noteTimeline && track.noteTimeline.length > 0) continue;  // already has notes
+        const btn = document.createElement("button");
+        btn.className = "reanalyze-btn";
+        btn.title = "Re-analyse to detect swara notes on waveform";
+        btn.innerHTML = `↺ Detect Notes`;
+        btn.addEventListener("click", () => {
+          btn.remove();
+          startAnalysis(jobId);
+        });
+        nameBlock.appendChild(btn);
+      }
+    }
+
+    function _setAnalysingBadges(analysing) {
+      // Show/hide "Detecting…" placeholder badges on drums + vocals tracks
+      for (const track of mixer.tracks) {
+        if (track.key === "drums") {
+          let badge = track.row?.querySelector(".bpm-badge");
+          if (analysing && !badge) {
+            badge = document.createElement("span");
+            badge.className = "bpm-badge bpm-badge--pending";
+            badge.textContent = "Detecting BPM…";
+            track.row?.querySelector(".track-name-block")?.appendChild(badge);
+          } else if (!analysing && badge && badge.classList.contains("bpm-badge--pending")) {
+            badge.remove();
+          }
+        }
+        if (track.key === "vocals") {
+          // Remove the manual reanalyze button while auto-analysis is running
+          if (analysing) {
+            track.row?.querySelector(".reanalyze-btn")?.remove();
+          }
+          let badge = track.row?.querySelector(".key-badge");
+          if (analysing && !badge) {
+            badge = document.createElement("span");
+            badge.className = "key-badge key-badge--pending";
+            badge.textContent = "Detecting Key…";
+            track.row?.querySelector(".track-name-block")?.appendChild(badge);
+          } else if (!analysing && badge && badge.classList.contains("key-badge--pending")) {
+            badge.remove();
+          }
+        }
+      }
+    }
+
+    function _applyAnalysisResults(data) {
+      // Update mixer state with new BPM / key data
+      if (data.bpm) mixer.bpm = data.bpm;
+      if (data.bpm_segments) mixer.bpmSegments = data.bpm_segments;
+      if (data.key)  mixer.key = data.key;
+      if (data.key_confidence) mixer.keyConfidence = data.key_confidence;
+      if (data.thaat) mixer.thaat = data.thaat;
+      if (data.thaat_alt) mixer.thaatAlt = data.thaat_alt;
+
+      // Remove pending badges and add real ones
+      _setAnalysingBadges(false);
+
+      for (const track of mixer.tracks) {
+        const nameBlock = track.row?.querySelector(".track-name-block");
+        if (!nameBlock) continue;
+
+        if (track.key === "drums" && mixer.bpm && !nameBlock.querySelector(".bpm-badge")) {
+          const badge = document.createElement("span");
+          badge.className = "bpm-badge";
+          const hasSegments = mixer.bpmSegments && mixer.bpmSegments.length > 1;
+          badge.textContent = hasSegments ? `${mixer.bpm} BPM (variable)` : `${mixer.bpm} BPM`;
+          badge.title = hasSegments
+            ? mixer.bpmSegments.map((s) => `${formatTime(s.start)}–${formatTime(s.end)}: ${s.bpm} BPM`).join("\n")
+            : `${mixer.bpm} BPM`;
+          nameBlock.appendChild(badge);
+          // Redraw waveform to show BPM segments
+          redrawAllWaveforms();
+        }
+
+        if (track.key === "vocals" && mixer.key && !nameBlock.querySelector(".key-badge")) {
+          const badge = document.createElement("span");
+          badge.className = "key-badge";
+          badge.textContent = `♪ ${mixer.key}`;
+          const pct = Math.round((mixer.keyConfidence || 0) * 100);
+          badge.title = `Key: ${mixer.key}${pct ? ` (${pct}% confidence)` : ""}`;
+          nameBlock.appendChild(badge);
+        }
+
+        // Attach note timeline to vocals track and redraw
+        if (track.key === "vocals" && data.note_timeline && data.note_timeline.length) {
+          track.noteTimeline = data.note_timeline;
+          track.row?.querySelector(".reanalyze-btn")?.remove();
+          redrawAllWaveforms();
+        }
+      }
+    }
+
+    async function startAnalysis(jobId) {
+      if (analyseTimer) { clearInterval(analyseTimer); analyseTimer = null; }
+      _setAnalysingBadges(true);
+      try {
+        await fetch(`${API_BASE}/jobs/${encodeURIComponent(jobId)}/analyse`, { method: "POST" });
+      } catch (_) { /* server will handle it */ }
+
+      // Poll job status until bpm_analyse_status === "done" or "failed"
+      analyseTimer = setInterval(async () => {
+        try {
+          const res = await fetch(`${API_BASE}/jobs/${encodeURIComponent(jobId)}`);
+          if (!res.ok) { clearInterval(analyseTimer); analyseTimer = null; return; }
+          const data = await res.json();
+          if (data.bpm_analyse_status === "done") {
+            clearInterval(analyseTimer); analyseTimer = null;
+            _applyAnalysisResults(data);
+          } else if (data.bpm_analyse_status === "failed") {
+            clearInterval(analyseTimer); analyseTimer = null;
+            _setAnalysingBadges(false);
+          }
+        } catch (_) { clearInterval(analyseTimer); analyseTimer = null; }
+      }, 2000);
     }
 
     function applySidebarWidth(nextWidth, persist = true) {
@@ -2748,6 +3000,7 @@
           data.download_url || "",
           data.source_download_url || "",
           data.mixer_state || {},
+          { bpm: data.bpm || null, bpmSegments: data.bpm_segments || [], key: data.key || null, keyConfidence: data.key_confidence || 0, thaat: data.thaat || null, thaatAlt: data.thaat_alt || null, noteTimeline: data.note_timeline || [] },
         );
         setSplitPanelVisible(false);
         card.classList.add("expanded");
@@ -3099,6 +3352,61 @@
       const amp = height / 2;
       ctx.fillStyle = track.waveBackground || "#dde6ff";
       ctx.fillRect(0, 0, width, height);
+
+      // BPM segment bands — drawn on drums track when multiple tempos detected
+      if (track.key === "drums" && mixer.bpmSegments && mixer.bpmSegments.length > 1) {
+        const segPalette = [
+          "rgba(251,146,60,0.18)",   // orange
+          "rgba(52,211,153,0.18)",   // green
+          "rgba(129,140,248,0.18)",  // indigo
+          "rgba(251,191,36,0.18)",   // amber
+          "rgba(248,113,113,0.18)",  // red
+        ];
+        const totalDuration = mixer.duration || 1;
+        for (let si = 0; si < mixer.bpmSegments.length; si++) {
+          const seg = mixer.bpmSegments[si];
+          const xStart = Math.max(0, timeToViewportX(seg.start, width));
+          const xEnd   = Math.min(width, timeToViewportX(seg.end, width));
+          if (xEnd <= xStart) continue;
+          ctx.fillStyle = segPalette[si % segPalette.length];
+          ctx.fillRect(xStart, 0, xEnd - xStart, height);
+
+          // BPM label inside the band
+          const bandWidth = xEnd - xStart;
+          if (bandWidth > 36) {
+            const label = `${seg.bpm}`;
+            ctx.font = "bold 11px system-ui, sans-serif";
+            ctx.textBaseline = "top";
+            const tw = ctx.measureText(label).width;
+            const lx = xStart + Math.min(6, (bandWidth - tw) / 2);
+            const ly = 4;
+            // pill background
+            ctx.fillStyle = "rgba(0,0,0,0.42)";
+            const pill = { x: lx - 4, y: ly - 2, w: tw + 8, h: 16, r: 6 };
+            if (typeof ctx.roundRect === "function") {
+              ctx.beginPath(); ctx.roundRect(pill.x, pill.y, pill.w, pill.h, pill.r); ctx.fill();
+            } else {
+              ctx.fillRect(pill.x, pill.y, pill.w, pill.h);
+            }
+            ctx.fillStyle = "#ffffff";
+            ctx.fillText(label, lx, ly);
+          }
+        }
+        // Draw divider lines between segments
+        for (let si = 1; si < mixer.bpmSegments.length; si++) {
+          const x = timeToViewportX(mixer.bpmSegments[si].start, width);
+          if (x < 0 || x > width) continue;
+          ctx.strokeStyle = "rgba(0,0,0,0.25)";
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([4, 3]);
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, height);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+      }
+
       ctx.fillStyle = track.waveFillColor || "#2256e8";
       const visibleStart = mixer.visibleStart || 0;
       const visibleDuration = mixer.visibleDuration || getMaxVisibleDuration();
@@ -3203,6 +3511,47 @@
         ctx.stroke();
         ctx.fillStyle = track.markerTextColor || "#ffffff";
         ctx.fillText(label, badgeX + 6, badgeY + (badgeHeight / 2));
+      }
+
+      // ── Swara note labels on vocals track ─────────────────────────────────
+      if (track.key === "vocals" && track.noteTimeline && track.noteTimeline.length > 0) {
+        const SWARA_COLORS = {
+          "Sa":  "#f87171", "kRe": "#fb923c", "Re":  "#fbbf24",
+          "kGa": "#a3e635", "Ga":  "#4ade80", "Ma":  "#34d399",
+          "tMa": "#38bdf8", "Pa":  "#818cf8", "kDh": "#c084fc",
+          "Dh":  "#f472b6", "kNi": "#fb7185", "Ni":  "#fda4af",
+        };
+        ctx.font = "bold 9px system-ui, sans-serif";
+        ctx.textBaseline = "alphabetic";
+        let lastLabelEndX = -999;
+        const labelH  = 14;
+        const labelY  = height - 3;  // bottom edge of waveform
+
+        for (const seg of track.noteTimeline) {
+          const x = timeToViewportX(seg.time, width);
+          if (x < 0 || x > width) continue;
+          const noteLabel = seg.note;
+          const tw     = ctx.measureText(noteLabel).width;
+          const pillW  = tw + 8;
+          const pillX  = Math.max(1, Math.min(width - pillW - 1, x));
+          if (pillX < lastLabelEndX + 2) continue;  // skip if overlapping
+          const pillY  = labelY - labelH;
+          const color  = SWARA_COLORS[noteLabel] || "#94a3b8";
+
+          // Dark pill background
+          ctx.fillStyle = "rgba(0,0,0,0.62)";
+          if (typeof ctx.roundRect === "function") {
+            ctx.beginPath();
+            ctx.roundRect(pillX, pillY, pillW, labelH, 4);
+            ctx.fill();
+          } else {
+            ctx.fillRect(pillX, pillY, pillW, labelH);
+          }
+          // Coloured note name
+          ctx.fillStyle = color;
+          ctx.fillText(noteLabel, pillX + 4, labelY - 2);
+          lastLabelEndX = pillX + pillW;
+        }
       }
     }
 
@@ -3325,6 +3674,28 @@
         status.textContent = theme.status;
         nameBlock.appendChild(name);
         nameBlock.appendChild(status);
+        // BPM badge — only shown on drums track
+        if (track.key === "drums" && mixer.bpm) {
+          const bpmBadge = document.createElement("span");
+          bpmBadge.className = "bpm-badge";
+          const hasSegments = mixer.bpmSegments && mixer.bpmSegments.length > 1;
+          bpmBadge.textContent = hasSegments ? `${mixer.bpm} BPM (variable)` : `${mixer.bpm} BPM`;
+          bpmBadge.title = hasSegments
+            ? mixer.bpmSegments.map((s) => `${formatTime(s.start)}–${formatTime(s.end)}: ${s.bpm} BPM`).join("\n")
+            : `${mixer.bpm} BPM`;
+          nameBlock.appendChild(bpmBadge);
+        }
+        // Key badge — shown on vocals track
+        if (track.key === "vocals" && mixer.key) {
+          const keyBadge = document.createElement("span");
+          keyBadge.className = "key-badge";
+          const thaatLabel = mixer.thaat ? ` · ${mixer.thaat}` : "";
+          keyBadge.textContent = `♪ ${mixer.key}${thaatLabel}`;
+          const pct = Math.round((mixer.keyConfidence || 0) * 100);
+          const altLabel = mixer.thaatAlt ? `\nAlso close to: ${mixer.thaatAlt} thaat` : "";
+          keyBadge.title = `Key: ${mixer.key}${mixer.thaat ? `\nThaat: ${mixer.thaat}` : ""}${altLabel}${pct ? `\nConfidence: ${pct}%` : ""}`;
+          nameBlock.appendChild(keyBadge);
+        }
         labelGroup.appendChild(typeIcon);
         labelGroup.appendChild(nameBlock);
         meta.appendChild(labelGroup);
@@ -3568,6 +3939,7 @@
       mixer.rafId = null;
       setTransport(0);
       redrawAllWaveforms();
+      if (typeof updatePlayPauseIcon === "function") updatePlayPauseIcon();
     }
 
     function pausePlayback() {
@@ -3627,6 +3999,7 @@
     }
 
     async function resetMixer(showHome = true) {
+      if (analyseTimer) { clearInterval(analyseTimer); analyseTimer = null; }
       stopPlayback();
       for (const track of mixer.tracks) {
         if (track.mediaNode) {
@@ -3644,7 +4017,6 @@
       mixerSection.classList.add("hidden");
       if (exportBar) exportBar.classList.add("hidden");
       playBtn.disabled = true;
-      pauseBtn.disabled = true;
       stopBtn.disabled = true;
       if (mixer.audioContext) {
         try { await mixer.audioContext.close(); } catch (_) {}
@@ -3690,7 +4062,7 @@
       setTransport(0);
     }
 
-    async function initMixer(jobId, stemUrls, stemDownloadUrls, zipDownloadUrl, sourceUrl, mixerState = {}) {
+    async function initMixer(jobId, stemUrls, stemDownloadUrls, zipDownloadUrl, sourceUrl, mixerState = {}, bpmData = {}) {
       await resetMixer(false);
       setSourceDownloadUrl(sourceUrl || "");
       const entries = Object.entries(stemUrls || {});
@@ -3736,10 +4108,23 @@
       mixer.duration = Math.max(...tracks.map((track) => track.buffer.duration));
       mixer.jobId = jobId;
       mixer.zipDownloadUrl = zipDownloadUrl || "";
+      mixer.bpm = bpmData.bpm || null;
+      mixer.bpmSegments = bpmData.bpmSegments || [];
+      mixer.key = bpmData.key || null;
+      mixer.keyConfidence = bpmData.keyConfidence || 0;
+      mixer.thaat = bpmData.thaat || null;
+      mixer.thaatAlt = bpmData.thaatAlt || null;
+      // Assign note timeline to the vocals track for waveform overlay
+      if (bpmData.noteTimeline && bpmData.noteTimeline.length) {
+        for (const track of tracks) {
+          if (track.key === "vocals") {
+            track.noteTimeline = bpmData.noteTimeline;
+          }
+        }
+      }
       mixerSection.classList.remove("hidden");
       if (exportBar) exportBar.classList.remove("hidden");
       playBtn.disabled = false;
-      pauseBtn.disabled = false;
       stopBtn.disabled = false;
       if (downloadMixBtn) {
         downloadMixBtn.disabled = false;
@@ -3750,13 +4135,43 @@
       renderTracks();
       await applySavedMixerState(mixerState);
       setActiveProject(jobId);
+
+      // Auto-analyse BPM + key for projects that don't have it yet
+      if (!mixer.bpm || !mixer.key) {
+        startAnalysis(jobId);
+      } else {
+        // BPM/key already present — check if note timeline needs to be computed
+        _maybeShowReanalyzeBtn(jobId);
+      }
     }
 
-    playBtn.addEventListener("click", () => {
-      playFrom(currentOffset()).catch((err) => showError(err.message || "Could not start playback."));
+    function updatePlayPauseIcon() {
+      if (mixer.isPlaying) {
+        playIcon.style.display = "none";
+        pauseIcon.style.display = "";
+        playBtn.setAttribute("aria-label", "Pause");
+        playBtn.setAttribute("title", "Pause");
+      } else {
+        playIcon.style.display = "";
+        pauseIcon.style.display = "none";
+        playBtn.setAttribute("aria-label", "Play");
+        playBtn.setAttribute("title", "Play");
+      }
+    }
+
+    playBtn.addEventListener("click", async () => {
+      if (mixer.isPlaying) {
+        pausePlayback();
+        updatePlayPauseIcon();
+      } else {
+        await playFrom(currentOffset()).catch((err) => showError(err.message || "Could not start playback."));
+        updatePlayPauseIcon();
+      }
     });
-    pauseBtn.addEventListener("click", pausePlayback);
-    stopBtn.addEventListener("click", stopPlayback);
+    stopBtn.addEventListener("click", () => {
+      stopPlayback();
+      updatePlayPauseIcon();
+    });
     transportSeek.addEventListener("input", () => {
       const offset = (Number(transportSeek.value) / 1000) * (mixer.duration || 0);
       seekTo(offset).catch((err) => showError(err.message || "Failed to seek."));
@@ -3890,6 +4305,20 @@
       if (!sourceDownloadUrl) return;
       window.open(sourceDownloadUrl, "_self");
     });
+
+    if (cancelJobBtn) {
+      cancelJobBtn.addEventListener("click", async () => {
+        if (!currentJobId || cancelJobBtn.classList.contains("cancelling")) return;
+        cancelJobBtn.classList.add("cancelling");
+        cancelJobBtn.disabled = true;
+        cancelJobBtn.textContent = "Cancelling...";
+        try {
+          await fetch(`${API_BASE}/jobs/${encodeURIComponent(currentJobId)}/cancel`, { method: "POST" });
+        } catch (_) {
+          // pollStatus will pick up the cancelled state
+        }
+      });
+    }
     document.addEventListener("click", () => {
       if (!activeProjectMenuJobId) return;
       closeProjectMenu();
@@ -3921,9 +4350,22 @@
         }
       });
     }
+    function updateUploadVisibility() {
+      const hasUrl = !!(sourceUrlInput && sourceUrlInput.value.trim());
+      const uploadVisual = document.querySelector(".split-upload-visual");
+      const urlEyebrow = document.querySelector(".split-url-eyebrow");
+      const urlSubcopy = document.querySelector(".split-url-subcopy");
+      const shell = document.getElementById("split-dropzone");
+      if (uploadVisual) uploadVisual.style.display = hasUrl ? "none" : "";
+      if (urlEyebrow) urlEyebrow.style.display = hasUrl ? "none" : "";
+      if (urlSubcopy) urlSubcopy.style.display = hasUrl ? "none" : "";
+      if (shell) shell.style.minHeight = hasUrl ? "auto" : "";
+      if (shell) shell.style.padding = hasUrl ? "28px 40px" : "";
+    }
     audioFileInput.addEventListener("change", updateAudioDropHint);
     audioFileInput.addEventListener("change", updateActionButtons);
     sourceUrlInput.addEventListener("input", updateActionButtons);
+    sourceUrlInput.addEventListener("input", updateUploadVisibility);
     if (splitDropzone && audioFileInput) {
       splitDropzone.addEventListener("click", (event) => {
         if (event.target instanceof HTMLElement && event.target.closest("input, button, a, label")) return;
@@ -4018,12 +4460,25 @@
       progressText.textContent = `${data.message || "Processing..."} (${displayProgress}%)`;
 
       if (data.status === "failed") {
+        setCancelBtnVisible(false);
+        setSplitPanelVisible(true);
         showError(data.message || "Job failed. Check job.log in the job folder.");
         clearInterval(pollTimer);
         pollTimer = null;
       }
 
+      if (data.status === "cancelled") {
+        setCancelBtnVisible(false);
+        clearInterval(pollTimer);
+        pollTimer = null;
+        progressSection.classList.add("hidden");
+        setSplitPanelVisible(true);
+        showError("Separation cancelled.");
+        return;
+      }
+
       if (data.status === "completed") {
+        setCancelBtnVisible(false);
         if (data.job_type === "download_only") {
           const downloadUrl = data.source_download_url || "";
           if (downloadUrl) {
@@ -4044,6 +4499,8 @@
           data.stem_download_urls,
           data.download_url || "",
           data.source_download_url || "",
+          {},
+          { bpm: data.bpm || null, bpmSegments: data.bpm_segments || [], key: data.key || null, keyConfidence: data.key_confidence || 0, thaat: data.thaat || null, thaatAlt: data.thaat_alt || null, noteTimeline: data.note_timeline || [] },
         ).then(() => {
           setSplitPanelVisible(false);
           progressSection.classList.add("hidden");
@@ -4105,6 +4562,9 @@
         }
 
         if (pollTimer) clearInterval(pollTimer);
+        currentJobId = data.job_id;
+        setCancelBtnVisible(true);
+        setSplitPanelVisible(false);
         await pollStatus(data.job_id);
         pollTimer = setInterval(() => {
           pollStatus(data.job_id).catch((err) => {

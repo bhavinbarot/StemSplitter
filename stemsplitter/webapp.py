@@ -22,8 +22,16 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 if __package__:
     from .video_downloader import VideoDownloadError, YtDlpVideoDownloader
+    from . import cache as stem_cache
+    from . import bpm as bpm_detector
+    from . import key_detection as key_detector
+    from . import admin_config
 else:
     from video_downloader import VideoDownloadError, YtDlpVideoDownloader
+    import cache as stem_cache
+    import bpm as bpm_detector
+    import key_detection as key_detector
+    import admin_config
 
 
 app = Flask(__name__)
@@ -34,11 +42,17 @@ app.config["PREFERRED_URL_SCHEME"] = "https"
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 JOB_ROOT = Path(os.getenv("WEB_JOBS_ROOT", str(PROJECT_ROOT / "web_jobs")))
 LOGIN_ROOT = Path(os.getenv("WEB_LOGINS_ROOT", str(PROJECT_ROOT / "web_logins")))
+JOB_ROOT.mkdir(parents=True, exist_ok=True)
+stem_cache.init(JOB_ROOT / "stem_cache.db")
+admin_config.init(JOB_ROOT / "admin_config.json")
 JOB_META_NAME = "job.json"
 ALLOWED_SUFFIXES = {".mp3", ".mpe", ".wav", ".flac", ".m4a", ".aac", ".ogg"}
 PROGRESS_RE = re.compile(r"(\d{1,3})%\|")
 jobs = {}
 jobs_lock = threading.Lock()
+# Maps job_id -> running subprocess.Popen so cancel can terminate it
+job_processes: dict[str, subprocess.Popen] = {}
+job_processes_lock = threading.Lock()
 JOB_ID_RE = re.compile(r"(?:[0-9a-f]{32}|[0-9]{8}_[0-9]{6}_[0-9a-f]{32})")
 STEM_KEY_RE = re.compile(r"[a-z_]{1,24}")
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
@@ -48,6 +62,18 @@ AUTH_REQUIRED = os.getenv("REQUIRE_GOOGLE_LOGIN", "false").strip().lower() in {"
 # Google doesn't expose "name-only" scope; profile is needed for a reliable display name.
 GOOGLE_OAUTH_SCOPE = os.getenv("GOOGLE_OAUTH_SCOPE", "openid email profile").strip() or "openid email profile"
 API_CORS_ORIGIN = os.getenv("API_CORS_ORIGIN", "").strip()
+
+
+def _detect_compute_device() -> str:
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return f"GPU ({torch.cuda.get_device_name(0)})"
+    except Exception:
+        pass
+    return "CPU"
+
+COMPUTE_DEVICE = _detect_compute_device()
 
 
 def _resolve_ui_version() -> str:
@@ -227,7 +253,7 @@ def _resolve_stem_paths(job: dict) -> dict[str, Path]:
 @login_required
 def index():
     ui_version = _resolve_ui_version()
-    return render_template("index.html", ui_version=ui_version, current_user=session.get("user"))
+    return render_template("index.html", ui_version=ui_version, compute_device=COMPUTE_DEVICE, current_user=session.get("user"))
 
 
 @app.get("/login")
@@ -373,8 +399,7 @@ def _update_job(job_id: str, **kwargs):
     with jobs_lock:
         if job_id in jobs:
             jobs[job_id].update(kwargs)
-            if kwargs.get("status") in {"completed", "failed"} or "mixer_state" in kwargs:
-                job_snapshot = dict(jobs[job_id])
+            job_snapshot = dict(jobs[job_id])
     if job_snapshot:
         _persist_job_snapshot(job_id, job_snapshot)
 
@@ -438,6 +463,12 @@ def _persist_job_snapshot(job_id: str, job: dict):
             "mixer_state": job.get("mixer_state", {}),
             "created_at": job.get("created_at", ""),
             "updated_at": datetime.now().isoformat(timespec="seconds"),
+            "bpm": job.get("bpm"),
+            "bpm_segments": job.get("bpm_segments", []),
+            "key": job.get("key"),
+            "key_confidence": job.get("key_confidence", 0.0),
+            "thaat": job.get("thaat"),
+            "thaat_alt": job.get("thaat_alt"),
         }
         temp_path = _job_meta_path(job_id).with_suffix(".json.tmp")
         with temp_path.open("w", encoding="utf-8") as handle:
@@ -779,6 +810,7 @@ def _run_demucs_job(job_id: str, input_path: Path, output_path: Path, original_n
             )
         command.append(str(input_path))
 
+        _write_job_log(log_path, f"Compute device: {COMPUTE_DEVICE}")
         _write_job_log(log_path, f"Input file: {input_path}")
         _write_job_log(log_path, f"Command: {' '.join(command)}")
         _update_job(job_id, status="running", progress=5, message="Starting separation...", log_file=_to_job_relative(log_path))
@@ -790,6 +822,8 @@ def _run_demucs_job(job_id: str, input_path: Path, output_path: Path, original_n
             text=True,
             bufsize=1,
         )
+        with job_processes_lock:
+            job_processes[job_id] = process
 
         while True:
             line = process.stdout.readline()
@@ -813,7 +847,14 @@ def _run_demucs_job(job_id: str, input_path: Path, output_path: Path, original_n
                 mapped_pct = min(95, 25 + int(pct * 0.7))
                 _update_job(job_id, progress=max(_job_progress(job_id), mapped_pct), message="Separating stems...")
 
+        with job_processes_lock:
+            job_processes.pop(job_id, None)
+
         return_code = process.wait()
+        # -15 = SIGTERM (cancelled), treat gracefully
+        if return_code == -15 or (_get_job(job_id) or {}).get("status") == "cancelled":
+            _write_job_log(log_path, "Job was cancelled.")
+            return
         if return_code != 0:
             _write_job_log(log_path, f"Separation exited with code {return_code}.")
             _update_job(job_id, status="failed", message="Separation failed. Check job.log in job folder.", progress=100)
@@ -863,6 +904,7 @@ def _run_demucs_job(job_id: str, input_path: Path, output_path: Path, original_n
         project_name = _normalize_project_title(existing_job.get("project_name", ""))
         if not project_name:
             project_name = original_stem or Path(original_name).stem or "Untitled project"
+
         _update_job(
             job_id,
             status="completed",
@@ -879,6 +921,10 @@ def _run_demucs_job(job_id: str, input_path: Path, output_path: Path, original_n
             project_name=project_name,
             updated_at=datetime.now().isoformat(timespec="seconds"),
         )
+
+        # BPM + key detection — run in background so mixer loads immediately
+        _update_job(job_id, bpm_analyse_status="running")
+        threading.Thread(target=_run_analyse_job, args=(job_id,), daemon=True).start()
     except Exception as exc:
         _write_job_log(log_path, f"Unexpected error: {exc}")
         _update_job(job_id, status="failed", message="Unexpected server error.", progress=100)
@@ -901,6 +947,18 @@ def _run_url_demucs_job(job_id: str, source_url: str, job_dir: Path, output_path
 
     _write_job_log(log_path, f"Prepared Demucs input: {input_path}")
     _run_demucs_job(job_id, input_path, output_path, source_path.name, options)
+
+    # Write to cache if the job completed successfully
+    video_id = stem_cache.extract_video_id(source_url)
+    if video_id:
+        completed_job = _get_job(job_id) or {}
+        if completed_job.get("status") == "completed":
+            model = _quality_profile(options.get("quality_level", 50))["model"]
+            separation_mode = options.get("separation_mode", "full")
+            output_format = options.get("output_format", "mp3")
+            cache_key = stem_cache.make_cache_key(video_id, model, separation_mode, output_format)
+            stem_cache.insert(cache_key, video_id, model, separation_mode, output_format, job_id)
+            app.logger.info("cache_insert job_id=%s video_id=%s", job_id, video_id)
 
 
 def _run_url_download_only_job(job_id: str, source_url: str, job_dir: Path):
@@ -959,6 +1017,24 @@ def start_split():
         return jsonify({"ok": False, "error": "Invalid quality setting."}), 400
     quality_level = max(0, min(100, quality_level))
 
+    # Cache check: only for URL-based split jobs
+    if has_source_url and url_action == "split":
+        video_id = stem_cache.extract_video_id(source_url)
+        if video_id:
+            model = _quality_profile(quality_level)["model"]
+            cache_key = stem_cache.make_cache_key(video_id, model, separation_mode, output_format)
+            cached_job_id = stem_cache.lookup(cache_key)
+            if cached_job_id:
+                # Verify the job files still exist on disk
+                cached_job_dir = JOB_ROOT / cached_job_id
+                cached_meta = cached_job_dir / JOB_META_NAME
+                if cached_meta.exists():
+                    app.logger.info("cache_hit job_id=%s video_id=%s", cached_job_id, video_id)
+                    return jsonify({"ok": True, "job_id": cached_job_id, "cached": True})
+                # Files gone — remove stale entry and continue to create a new job
+                app.logger.info("cache_stale job_id=%s video_id=%s", cached_job_id, video_id)
+                stem_cache.invalidate(cache_key)
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     job_id = f"{timestamp}_{uuid.uuid4().hex}"
     job_dir = JOB_ROOT / job_id
@@ -1002,6 +1078,12 @@ def start_split():
             "mixer_state": {},
             "created_at": now_iso,
             "updated_at": now_iso,
+            "bpm": None,
+            "bpm_segments": [],
+            "key": None,
+            "key_confidence": 0.0,
+            "thaat": None,
+            "thaat_alt": None,
         }
         initial_snapshot = dict(jobs[job_id])
     _persist_job_snapshot(job_id, initial_snapshot)
@@ -1068,6 +1150,14 @@ def job_status(job_id: str):
             "job_type": job.get("job_type", "split"),
             "project_name": job.get("project_name", ""),
             "mixer_state": job.get("mixer_state", {}),
+            "bpm": job.get("bpm"),
+            "bpm_segments": job.get("bpm_segments", []),
+            "key": job.get("key"),
+            "key_confidence": job.get("key_confidence", 0.0),
+            "thaat": job.get("thaat"),
+            "thaat_alt": job.get("thaat_alt"),
+            "note_timeline": job.get("note_timeline", []),
+            "bpm_analyse_status": job.get("bpm_analyse_status"),
         }
     )
 
@@ -1131,6 +1221,113 @@ def delete_job(job_id: str):
 
     shutil.rmtree(job_dir, ignore_errors=False)
     return jsonify({"ok": True, "job_id": job_id})
+
+
+@app.post("/api/v1/jobs/<job_id>/cancel")
+@login_required
+def cancel_job(job_id: str):
+    if not _is_valid_job_id(job_id):
+        abort(404)
+
+    job = _get_job(job_id)
+    if not job:
+        abort(404)
+
+    status = job.get("status", "")
+    if status not in {"queued", "running"}:
+        return jsonify({"ok": False, "error": f"Job is already {status}."}), 409
+
+    # Mark cancelled first so the worker thread exits cleanly
+    _update_job(job_id, status="cancelled", progress=100, message="Cancelled by user.")
+
+    # Terminate the demucs subprocess if it's running
+    with job_processes_lock:
+        proc = job_processes.pop(job_id, None)
+    if proc and proc.poll() is None:
+        proc.terminate()
+
+    app.logger.info("job_cancelled job_id=%s", job_id)
+    return jsonify({"ok": True, "job_id": job_id})
+
+
+def _run_analyse_job(job_id: str):
+    """Background worker: run BPM + key detection on existing stems."""
+    job = _get_job(job_id)
+    if not job:
+        return
+
+    stem_root_str = job.get("stem_root", "")
+    if not stem_root_str:
+        app.logger.warning("analyse_job: no stem_root for job_id=%s", job_id)
+        _update_job(job_id, bpm_analyse_status="failed")
+        return
+
+    stem_root = Path(stem_root_str)
+    extension = ".mp3" if job.get("output_format", "mp3") == "mp3" else ".wav"
+
+    drums_path  = stem_root / f"drums{extension}"
+    vocals_path = stem_root / f"vocals{extension}"
+    others_path = stem_root / f"other{extension}"
+    if not others_path.exists():
+        others_path = stem_root / f"others{extension}"
+
+    # Source file fallback
+    source_file = job.get("source_file", "")
+    source_path = (JOB_ROOT / job_id / source_file) if source_file else None
+    if source_path and not source_path.exists():
+        candidates = sorted((JOB_ROOT / job_id).glob("source_*.*"),
+                            key=lambda p: p.stat().st_mtime, reverse=True)
+        source_path = candidates[0] if candidates else None
+
+    try:
+        bpm_result = bpm_detector.detect(drums_path, fallback_path=source_path)
+        key_result = key_detector.detect(
+            vocals_path=vocals_path,
+            others_path=others_path if others_path.exists() else None,
+            source_path=source_path,
+        )
+        note_timeline = []
+        if key_result.get("tonic") and vocals_path.exists():
+            note_timeline = key_detector.detect_note_timeline(
+                vocals_path=vocals_path,
+                tonic_note=key_result["tonic"],
+            )
+        _update_job(
+            job_id,
+            bpm=bpm_result.get("bpm"),
+            bpm_segments=bpm_result.get("segments", []),
+            key=key_result.get("label"),
+            key_confidence=key_result.get("confidence", 0.0),
+            thaat=key_result.get("thaat"),
+            thaat_alt=key_result.get("thaat_alt"),
+            note_timeline=note_timeline,
+            bpm_analyse_status="done",
+            updated_at=datetime.now().isoformat(timespec="seconds"),
+        )
+        app.logger.info("analyse_job done job_id=%s bpm=%s key=%s",
+                        job_id, bpm_result.get("bpm"), key_result.get("label"))
+    except Exception as exc:
+        app.logger.exception("analyse_job failed job_id=%s: %s", job_id, exc)
+        _update_job(job_id, bpm_analyse_status="failed")
+
+
+@app.post("/api/v1/jobs/<job_id>/analyse")
+@login_required
+def analyse_job(job_id: str):
+    """(Re-)run BPM and key detection on an already-completed job."""
+    if not _is_valid_job_id(job_id):
+        abort(404)
+    job = _get_job(job_id)
+    if not job:
+        abort(404)
+    if job.get("status") != "completed":
+        return jsonify({"ok": False, "error": "Job is not completed yet."}), 409
+    if job.get("bpm_analyse_status") == "running":
+        return jsonify({"ok": True, "job_id": job_id, "status": "already_running"})
+
+    _update_job(job_id, bpm_analyse_status="running")
+    threading.Thread(target=_run_analyse_job, args=(job_id,), daemon=True).start()
+    return jsonify({"ok": True, "job_id": job_id, "status": "started"})
 
 
 @app.get("/api/v1/projects")
@@ -1446,6 +1643,173 @@ def download_stem_loop(job_id: str, stem_key: str):
         abort(500)
 
     return send_file(output_path, as_attachment=True, download_name=output_name)
+
+
+# ── Admin ─────────────────────────────────────────────────────────────────────
+
+@app.get("/admin")
+@login_required
+def admin_page():
+    return render_template("admin.html", current_user=session.get("user"))
+
+
+@app.get("/api/v1/admin/config")
+@login_required
+def admin_get_config():
+    return jsonify(admin_config.get_all())
+
+
+@app.post("/api/v1/admin/config")
+@login_required
+def admin_update_config():
+    updates = request.get_json(force=True, silent=True) or {}
+    new_cfg = admin_config.update(updates)
+    return jsonify(new_cfg)
+
+
+@app.post("/api/v1/admin/config/reset")
+@login_required
+def admin_reset_config():
+    cfg = admin_config.reset_to_defaults()
+    return jsonify(cfg)
+
+
+@app.get("/api/v1/admin/stats")
+@login_required
+def admin_stats():
+    """Return system stats: project count, storage, cache size, failed jobs."""
+    total = 0
+    completed = 0
+    failed = 0
+    disk_bytes = 0
+
+    if JOB_ROOT.exists():
+        for job_dir in JOB_ROOT.iterdir():
+            if not job_dir.is_dir():
+                continue
+            meta = job_dir / JOB_META_NAME
+            if not meta.exists():
+                continue
+            total += 1
+            try:
+                data = json.loads(meta.read_text())
+                status = data.get("status", "")
+                if status == "completed":
+                    completed += 1
+                elif status == "failed":
+                    failed += 1
+            except Exception:
+                pass
+            # Sum directory size
+            for f in job_dir.rglob("*"):
+                if f.is_file():
+                    try:
+                        disk_bytes += f.stat().st_size
+                    except OSError:
+                        pass
+
+    # Cache entry count
+    cache_entries = 0
+    try:
+        import sqlite3
+        db_path = JOB_ROOT / "stem_cache.db"
+        if db_path.exists():
+            con = sqlite3.connect(str(db_path))
+            row = con.execute("SELECT COUNT(*) FROM stem_cache").fetchone()
+            cache_entries = row[0] if row else 0
+            con.close()
+    except Exception:
+        pass
+
+    return jsonify({
+        "total_projects": total,
+        "completed_projects": completed,
+        "failed_projects": failed,
+        "disk_bytes": disk_bytes,
+        "disk_mb": round(disk_bytes / 1_048_576, 1),
+        "cache_entries": cache_entries,
+    })
+
+
+@app.post("/api/v1/admin/cache/clear")
+@login_required
+def admin_clear_cache():
+    try:
+        import sqlite3
+        db_path = JOB_ROOT / "stem_cache.db"
+        if db_path.exists():
+            con = sqlite3.connect(str(db_path))
+            con.execute("DELETE FROM stem_cache")
+            con.commit()
+            con.close()
+        return jsonify({"ok": True, "message": "Cache cleared."})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.post("/api/v1/admin/jobs/clear-failed")
+@login_required
+def admin_clear_failed_jobs():
+    deleted = 0
+    errors = []
+    if JOB_ROOT.exists():
+        for job_dir in list(JOB_ROOT.iterdir()):
+            if not job_dir.is_dir():
+                continue
+            meta = job_dir / JOB_META_NAME
+            if not meta.exists():
+                continue
+            try:
+                data = json.loads(meta.read_text())
+                if data.get("status") == "failed":
+                    shutil.rmtree(job_dir, ignore_errors=True)
+                    with jobs_lock:
+                        jobs.pop(job_dir.name, None)
+                    deleted += 1
+            except Exception as exc:
+                errors.append(str(exc))
+    return jsonify({"ok": True, "deleted": deleted, "errors": errors})
+
+
+@app.get("/api/v1/admin/jobs")
+@login_required
+def admin_list_jobs():
+    jobs_list = []
+    if JOB_ROOT.exists():
+        for job_dir in sorted(JOB_ROOT.iterdir(), key=lambda d: d.stat().st_mtime, reverse=True):
+            if not job_dir.is_dir():
+                continue
+            meta = job_dir / JOB_META_NAME
+            if not meta.exists():
+                continue
+            try:
+                data = json.loads(meta.read_text())
+                jobs_list.append({
+                    "job_id": job_dir.name,
+                    "status": data.get("status", "unknown"),
+                    "project_name": data.get("project_name", ""),
+                    "message": data.get("message", ""),
+                    "created_at": data.get("created_at", ""),
+                    "updated_at": data.get("updated_at", ""),
+                })
+            except Exception:
+                pass
+    return jsonify(jobs_list)
+
+
+@app.get("/api/v1/admin/jobs/<job_id>/log")
+@login_required
+def admin_job_log(job_id: str):
+    if not _is_valid_job_id(job_id):
+        abort(404)
+    log_path = _job_dir(job_id) / "job.log"
+    if not log_path.exists():
+        return jsonify({"log": "(no log file found)"})
+    try:
+        content = log_path.read_text(encoding="utf-8", errors="replace")
+    except Exception as exc:
+        return jsonify({"log": f"Error reading log: {exc}"})
+    return jsonify({"log": content})
 
 
 if __name__ == "__main__":
