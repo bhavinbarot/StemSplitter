@@ -1,0 +1,812 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin · Stem Splitter</title>
+  <link rel="icon" type="image/png" href="/ui-icon/brand">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    :root {
+      --bg: #f6f7fb;
+      --card: #ffffff;
+      --border: #d8dce8;
+      --text: #0f172a;
+      --subtle: #64748b;
+      --blue: #2563eb;
+      --blue-bg: #eff6ff;
+      --green: #16a34a;
+      --green-bg: #f0fdf4;
+      --red: #dc2626;
+      --red-bg: #fef2f2;
+      --orange: #d97706;
+      --orange-bg: #fffbeb;
+      --radius: 14px;
+    }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
+      min-height: 100vh;
+    }
+
+    /* ── Top bar ─────────────────────────────────────────────── */
+    .topbar {
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      padding: 0 28px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      height: 56px;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+    .topbar-logo {
+      font-size: 17px;
+      font-weight: 800;
+      color: var(--text);
+      text-decoration: none;
+      letter-spacing: -0.02em;
+    }
+    .topbar-sep { color: var(--border); }
+    .topbar-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--subtle);
+    }
+    .topbar-back {
+      margin-left: auto;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--blue);
+      text-decoration: none;
+      padding: 6px 14px;
+      border: 1.5px solid var(--blue);
+      border-radius: 999px;
+      transition: background 0.15s;
+    }
+    .topbar-back:hover { background: var(--blue-bg); }
+
+    /* ── Layout ──────────────────────────────────────────────── */
+    .page {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 36px 24px 60px;
+      display: grid;
+      gap: 28px;
+    }
+
+    /* ── Section card ────────────────────────────────────────── */
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .card-header {
+      padding: 18px 22px 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .card-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+    .card-icon.blue  { background: var(--blue-bg);   color: var(--blue);   }
+    .card-icon.green { background: var(--green-bg);  color: var(--green);  }
+    .card-icon.orange{ background: var(--orange-bg); color: var(--orange); }
+    .card-icon.red   { background: var(--red-bg);    color: var(--red);    }
+    .card-title {
+      font-size: 15px;
+      font-weight: 700;
+      margin: 0;
+    }
+    .card-subtitle {
+      font-size: 12px;
+      color: var(--subtle);
+      margin: 2px 0 0;
+    }
+    .card-body { padding: 20px 22px; }
+
+    /* ── Stat grid ───────────────────────────────────────────── */
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 14px;
+    }
+    .stat-cell {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px 18px;
+    }
+    .stat-value {
+      font-size: 28px;
+      font-weight: 800;
+      line-height: 1;
+      color: var(--blue);
+    }
+    .stat-label {
+      font-size: 12px;
+      color: var(--subtle);
+      margin-top: 6px;
+    }
+    .storage-meta {
+      margin-top: 16px;
+      padding: 14px 16px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--bg);
+      display: grid;
+      gap: 10px;
+    }
+    .storage-meta-row {
+      display: grid;
+      gap: 4px;
+    }
+    .storage-meta-label {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--subtle);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .storage-meta-value {
+      font-size: 13px;
+      color: var(--text);
+      word-break: break-all;
+    }
+    .storage-path {
+      font-family: "SF Mono", "Fira Code", monospace;
+      font-size: 12px;
+    }
+
+    /* ── Settings rows ───────────────────────────────────────── */
+    .setting-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 14px 0;
+      border-bottom: 1px solid #f1f4fb;
+    }
+    .setting-row:last-child { border-bottom: none; }
+    .setting-info { min-width: 0; }
+    .setting-label {
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .setting-desc {
+      font-size: 12px;
+      color: var(--subtle);
+      margin-top: 2px;
+    }
+
+    /* Toggle switch */
+    .toggle-wrap { flex-shrink: 0; }
+    .toggle {
+      position: relative;
+      display: inline-block;
+      width: 44px;
+      height: 24px;
+    }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      inset: 0;
+      background: #cbd5e1;
+      border-radius: 999px;
+      transition: background 0.2s;
+    }
+    .slider::before {
+      content: "";
+      position: absolute;
+      height: 18px;
+      width: 18px;
+      left: 3px;
+      bottom: 3px;
+      background: white;
+      border-radius: 50%;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.18);
+      transition: transform 0.2s;
+    }
+    .toggle input:checked + .slider { background: var(--blue); }
+    .toggle input:checked + .slider::before { transform: translateX(20px); }
+
+    /* Number input */
+    .num-input {
+      width: 90px;
+      padding: 7px 10px;
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+      background: var(--bg);
+      transition: border-color 0.15s;
+      flex-shrink: 0;
+    }
+    .num-input:focus {
+      outline: none;
+      border-color: var(--blue);
+      background: white;
+    }
+
+    /* ── Buttons ─────────────────────────────────────────────── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 9px 18px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: opacity 0.15s, background 0.15s;
+    }
+    .btn:disabled { opacity: 0.45; cursor: default; }
+    .btn-primary  { background: var(--blue);  color: white; }
+    .btn-primary:hover:not(:disabled)  { background: #1d4ed8; }
+    .btn-danger   { background: var(--red);   color: white; }
+    .btn-danger:hover:not(:disabled)   { background: #b91c1c; }
+    .btn-outline  {
+      background: white;
+      color: var(--text);
+      border: 1.5px solid var(--border);
+    }
+    .btn-outline:hover:not(:disabled) { background: var(--bg); }
+    .btn-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    /* ── Toast ───────────────────────────────────────────────── */
+    #toast {
+      position: fixed;
+      bottom: 28px;
+      left: 50%;
+      transform: translateX(-50%) translateY(12px);
+      background: #0f172a;
+      color: white;
+      padding: 10px 20px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 600;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s, transform 0.25s;
+      z-index: 999;
+      white-space: nowrap;
+    }
+    #toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+    #toast.error { background: var(--red); }
+
+    /* ── Maintenance action row ──────────────────────────────── */
+    .action-card {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 16px 0;
+      border-bottom: 1px solid #f1f4fb;
+    }
+    .action-card:last-child { border-bottom: none; }
+    .action-info { min-width: 0; }
+    .action-label { font-size: 14px; font-weight: 600; }
+    .action-desc  { font-size: 12px; color: var(--subtle); margin-top: 2px; }
+
+    /* ── Job list ─────────────────────────────────────────────── */
+    .job-list { display: grid; gap: 8px; }
+    .job-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 14px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--bg);
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .job-row:hover { background: #eef1fb; }
+    .job-status-badge {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 9px;
+      border-radius: 999px;
+      flex-shrink: 0;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .badge-completed { background: var(--green-bg); color: var(--green); }
+    .badge-failed    { background: var(--red-bg);   color: var(--red);   }
+    .badge-running   { background: var(--blue-bg);  color: var(--blue);  }
+    .badge-cancelled { background: #f1f5f9;          color: #64748b;      }
+    .badge-queued    { background: var(--orange-bg); color: var(--orange);}
+    .badge-unknown   { background: #f1f5f9;          color: #64748b;      }
+    .job-name { font-size: 13px; font-weight: 600; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .job-time { font-size: 11px; color: var(--subtle); flex-shrink: 0; }
+    .log-viewer {
+      display: none;
+      margin-top: 14px;
+      background: #0f172a;
+      color: #e2e8f0;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .log-viewer.open { display: block; }
+    .log-content {
+      padding: 16px;
+      font-family: "SF Mono", "Fira Code", monospace;
+      font-size: 12px;
+      line-height: 1.6;
+      max-height: 400px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .log-footer {
+      display: flex;
+      justify-content: flex-end;
+      padding: 8px 12px;
+      border-top: 1px solid rgba(255,255,255,0.08);
+    }
+    .log-refresh-btn {
+      background: none;
+      border: 1px solid rgba(255,255,255,0.2);
+      color: #94a3b8;
+      border-radius: 6px;
+      padding: 4px 12px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+    .log-refresh-btn:hover { background: rgba(255,255,255,0.08); color: #e2e8f0; }
+  </style>
+</head>
+<body>
+
+<nav class="topbar">
+  <a class="topbar-logo" href="/">Stem Splitter</a>
+  <span class="topbar-sep">›</span>
+  <span class="topbar-title">Admin</span>
+  <a class="topbar-back" href="/">← Back to App</a>
+</nav>
+
+<main class="page">
+
+  <!-- ── Dashboard ───────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-icon blue">📊</div>
+      <div>
+        <h2 class="card-title">Dashboard</h2>
+        <p class="card-subtitle">Live system stats</p>
+      </div>
+      <button class="btn btn-outline" style="margin-left:auto" onclick="loadStats()">↻ Refresh</button>
+    </div>
+    <div class="card-body">
+      <div class="stat-grid" id="stat-grid">
+        <div class="stat-cell"><div class="stat-value" id="stat-total">—</div><div class="stat-label">Total Projects</div></div>
+        <div class="stat-cell"><div class="stat-value" id="stat-completed">—</div><div class="stat-label">Completed</div></div>
+        <div class="stat-cell"><div class="stat-value" id="stat-failed" style="color:#dc2626">—</div><div class="stat-label">Failed</div></div>
+        <div class="stat-cell"><div class="stat-value" id="stat-running">—</div><div class="stat-label">Running</div></div>
+        <div class="stat-cell"><div class="stat-value" id="stat-queued">—</div><div class="stat-label">Queued</div></div>
+        <div class="stat-cell"><div class="stat-value" id="stat-cancelled">—</div><div class="stat-label">Cancelled</div></div>
+        <div class="stat-cell"><div class="stat-value" id="stat-storage">—</div><div class="stat-label">Storage Used</div></div>
+        <div class="stat-cell"><div class="stat-value" id="stat-free-disk">—</div><div class="stat-label">Disk Free</div></div>
+        <div class="stat-cell"><div class="stat-value" id="stat-cache">—</div><div class="stat-label">Cache Entries</div></div>
+        <div class="stat-cell"><div class="stat-value" id="stat-failed-24h">—</div><div class="stat-label">Failed Last 24h</div></div>
+        <div class="stat-cell"><div class="stat-value" id="stat-avg-split">—</div><div class="stat-label">Avg Split Time</div></div>
+      </div>
+      <div class="storage-meta">
+        <div class="storage-meta-row">
+          <div class="storage-meta-label">Web Jobs Location</div>
+          <div class="storage-meta-value storage-path" id="stat-job-root">—</div>
+        </div>
+        <div class="storage-meta-row">
+          <div class="storage-meta-label">Storage Type</div>
+          <div class="storage-meta-value" id="stat-job-root-type">—</div>
+        </div>
+        <div class="storage-meta-row">
+          <div class="storage-meta-label">Configured From</div>
+          <div class="storage-meta-value" id="stat-job-root-source">—</div>
+        </div>
+        <div class="storage-meta-row">
+          <div class="storage-meta-label">App Mode</div>
+          <div class="storage-meta-value" id="stat-app-mode">—</div>
+        </div>
+        <div class="storage-meta-row">
+          <div class="storage-meta-label">Pitch Support</div>
+          <div class="storage-meta-value" id="stat-pitch-support">—</div>
+        </div>
+        <div class="storage-meta-row">
+          <div class="storage-meta-label">ffmpeg</div>
+          <div class="storage-meta-value storage-path" id="stat-ffmpeg">—</div>
+        </div>
+        <div class="storage-meta-row">
+          <div class="storage-meta-label">Compute Device</div>
+          <div class="storage-meta-value" id="stat-compute-device">—</div>
+        </div>
+        <div class="storage-meta-row">
+          <div class="storage-meta-label">Web Jobs Root</div>
+          <div class="storage-meta-value storage-path" id="stat-web-jobs-root">—</div>
+        </div>
+        <div class="storage-meta-row">
+          <div class="storage-meta-label">Job Root Writable</div>
+          <div class="storage-meta-value" id="stat-job-root-writable">—</div>
+        </div>
+        <div class="storage-meta-row">
+          <div class="storage-meta-label">UI Version</div>
+          <div class="storage-meta-value" id="stat-ui-version">—</div>
+        </div>
+        <div class="storage-meta-row">
+          <div class="storage-meta-label">Build Timestamp</div>
+          <div class="storage-meta-value" id="stat-build-timestamp">—</div>
+        </div>
+        <div class="storage-meta-row">
+          <div class="storage-meta-label">Server PID</div>
+          <div class="storage-meta-value" id="stat-server-pid">—</div>
+        </div>
+        <div class="storage-meta-row">
+          <div class="storage-meta-label">Server Started</div>
+          <div class="storage-meta-value" id="stat-server-started">—</div>
+        </div>
+        <div class="storage-meta-row">
+          <div class="storage-meta-label">Server Uptime</div>
+          <div class="storage-meta-value" id="stat-server-uptime">—</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Feature Toggles ─────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-icon green">⚙️</div>
+      <div>
+        <h2 class="card-title">Feature Toggles</h2>
+        <p class="card-subtitle">Enable or disable detection features</p>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="setting-row">
+        <div class="setting-info">
+          <div class="setting-label">BPM Detection</div>
+          <div class="setting-desc">Detect tempo and BPM segments after splitting</div>
+        </div>
+        <label class="toggle toggle-wrap">
+          <input type="checkbox" id="toggle-bpm" onchange="saveToggle('enable_bpm_detection', this.checked)">
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="setting-row">
+        <div class="setting-info">
+          <div class="setting-label">Key &amp; Thaat Detection</div>
+          <div class="setting-desc">Detect musical key, scale and Hindustani thaat</div>
+        </div>
+        <label class="toggle toggle-wrap">
+          <input type="checkbox" id="toggle-key" onchange="saveToggle('enable_key_detection', this.checked)">
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="setting-row">
+        <div class="setting-info">
+          <div class="setting-label">Note Timeline (Swara Labels)</div>
+          <div class="setting-desc">Detect and overlay Indian swara names on the vocals waveform</div>
+        </div>
+        <label class="toggle toggle-wrap">
+          <input type="checkbox" id="toggle-notes" onchange="saveToggle('enable_note_timeline', this.checked)">
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="setting-row">
+        <div class="setting-info">
+          <div class="setting-label">Auto-Analyse on Open</div>
+          <div class="setting-desc">Automatically re-run analysis when opening a project without data</div>
+        </div>
+        <label class="toggle toggle-wrap">
+          <input type="checkbox" id="toggle-auto" onchange="saveToggle('auto_analyse_on_open', this.checked)">
+          <span class="slider"></span>
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Analysis Thresholds ─────────────────────────────────── -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-icon orange">🎛</div>
+      <div>
+        <h2 class="card-title">Analysis Thresholds</h2>
+        <p class="card-subtitle">Fine-tune detection sensitivity</p>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="setting-row">
+        <div class="setting-info">
+          <div class="setting-label">BPM Change Threshold</div>
+          <div class="setting-desc">Minimum BPM difference to report a tempo change segment (default 7.0)</div>
+        </div>
+        <input class="num-input" type="number" id="input-bpm-thresh" min="1" max="30" step="0.5"
+               onchange="saveNumber('bpm_change_threshold', this.value)">
+      </div>
+      <div class="setting-row">
+        <div class="setting-info">
+          <div class="setting-label">Note Energy Threshold</div>
+          <div class="setting-desc">Minimum HPCP energy (0–1) for a frame to receive a swara label (default 0.12)</div>
+        </div>
+        <input class="num-input" type="number" id="input-note-energy" min="0.01" max="0.5" step="0.01"
+               onchange="saveNumber('note_energy_threshold', this.value)">
+      </div>
+      <div class="setting-row">
+        <div class="setting-info">
+          <div class="setting-label">Note Minimum Duration (s)</div>
+          <div class="setting-desc">Shortest note segment to display on waveform in seconds (default 0.15)</div>
+        </div>
+        <input class="num-input" type="number" id="input-note-dur" min="0.05" max="2" step="0.05"
+               onchange="saveNumber('note_min_duration', this.value)">
+      </div>
+      <div class="setting-row">
+        <div class="setting-info">
+          <div class="setting-label">Thaat Penalty Factor</div>
+          <div class="setting-desc">Penalty (0–1) applied to HPCP energy at notes absent from a thaat (default 0.9)</div>
+        </div>
+        <input class="num-input" type="number" id="input-thaat-penalty" min="0" max="1" step="0.05"
+               onchange="saveNumber('thaat_penalty', this.value)">
+      </div>
+      <div style="margin-top:18px">
+        <button class="btn btn-outline" onclick="resetDefaults()">↺ Reset to Defaults</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Maintenance ─────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-icon red">🛠</div>
+      <div>
+        <h2 class="card-title">Maintenance</h2>
+        <p class="card-subtitle">Bulk actions and cleanup</p>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="action-card">
+        <div class="action-info">
+          <div class="action-label">Clear Stem Cache</div>
+          <div class="action-desc">Remove all cached split results. Next time the same URL is split, it will re-process from scratch.</div>
+        </div>
+        <button class="btn btn-outline" onclick="clearCache()">Clear Cache</button>
+      </div>
+      <div class="action-card">
+        <div class="action-info">
+          <div class="action-label">Delete Failed Jobs</div>
+          <div class="action-desc">Permanently delete all jobs with status "failed" and free up their disk space.</div>
+        </div>
+        <button class="btn btn-danger" onclick="clearFailed()">Delete Failed</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Job Logs ────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-icon blue">📋</div>
+      <div>
+        <h2 class="card-title">Job Logs</h2>
+        <p class="card-subtitle">Click a job to view its detailed log</p>
+      </div>
+      <button class="btn btn-outline" style="margin-left:auto" onclick="loadJobs()">↻ Refresh</button>
+    </div>
+    <div class="card-body">
+      <div id="job-list" class="job-list"><p style="color:var(--subtle);font-size:13px">Loading...</p></div>
+    </div>
+  </div>
+
+</main>
+
+<div id="toast"></div>
+
+<script>
+  const API = {{ (app_prefix or "") | tojson }} + "/api/v1/admin";
+  let saveTimer = null;
+
+  function toast(msg, isError = false) {
+    const el = document.getElementById("toast");
+    el.textContent = msg;
+    el.className = isError ? "show error" : "show";
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => { el.className = ""; }, 2800);
+  }
+
+  async function loadStats() {
+    try {
+      const r = await fetch(`${API}/stats`);
+      const d = await r.json();
+      document.getElementById("stat-total").textContent     = d.total_projects;
+      document.getElementById("stat-completed").textContent = d.completed_projects;
+      document.getElementById("stat-failed").textContent    = d.failed_projects;
+      document.getElementById("stat-running").textContent   = d.running_projects;
+      document.getElementById("stat-queued").textContent    = d.queued_projects;
+      document.getElementById("stat-cancelled").textContent = d.cancelled_projects;
+      document.getElementById("stat-storage").textContent   = `${d.disk_mb} MB`;
+      document.getElementById("stat-free-disk").textContent = d.free_disk_gb != null ? `${d.free_disk_gb} GB` : "—";
+      document.getElementById("stat-cache").textContent     = d.cache_entries;
+      document.getElementById("stat-failed-24h").textContent = d.failed_last_24h;
+      document.getElementById("stat-avg-split").textContent = d.average_split_seconds != null ? `${d.average_split_seconds}s` : "—";
+      document.getElementById("stat-job-root").textContent = d.job_root || "—";
+      document.getElementById("stat-job-root-type").textContent = d.job_root_storage_type || "—";
+      document.getElementById("stat-job-root-source").textContent = d.job_root_config_source || "—";
+      document.getElementById("stat-app-mode").textContent = d.app_mode || (d.lite_mode ? "Lite Mode" : "Full Mode");
+      document.getElementById("stat-pitch-support").textContent = d.pitch_support ? "Enabled" : "Disabled";
+      document.getElementById("stat-ffmpeg").textContent = d.ffmpeg_available ? (d.ffmpeg_path || "Available") : "Not available";
+      document.getElementById("stat-compute-device").textContent = d.compute_device || "—";
+      document.getElementById("stat-web-jobs-root").textContent = d.web_jobs_root || "—";
+      document.getElementById("stat-job-root-writable").textContent = d.job_root_writable ? "Yes" : "No";
+      document.getElementById("stat-ui-version").textContent = d.ui_version || "—";
+      document.getElementById("stat-build-timestamp").textContent = d.build_timestamp || "—";
+      document.getElementById("stat-server-pid").textContent = d.server_pid || "—";
+      document.getElementById("stat-server-started").textContent = d.server_started_at || "—";
+      document.getElementById("stat-server-uptime").textContent = d.server_uptime || "—";
+    } catch(e) { toast("Failed to load stats", true); }
+  }
+
+  async function loadConfig() {
+    try {
+      const r = await fetch(`${API}/config`);
+      const cfg = await r.json();
+      document.getElementById("toggle-bpm").checked    = !!cfg.enable_bpm_detection;
+      document.getElementById("toggle-key").checked    = !!cfg.enable_key_detection;
+      document.getElementById("toggle-notes").checked  = !!cfg.enable_note_timeline;
+      document.getElementById("toggle-auto").checked   = !!cfg.auto_analyse_on_open;
+      document.getElementById("input-bpm-thresh").value   = cfg.bpm_change_threshold;
+      document.getElementById("input-note-energy").value  = cfg.note_energy_threshold;
+      document.getElementById("input-note-dur").value     = cfg.note_min_duration;
+      document.getElementById("input-thaat-penalty").value = cfg.thaat_penalty;
+    } catch(e) { toast("Failed to load config", true); }
+  }
+
+  async function saveToggle(key, value) {
+    try {
+      await fetch(`${API}/config`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [key]: value }),
+      });
+      toast(`${key.replace(/_/g," ")} ${value ? "enabled" : "disabled"}`);
+    } catch(e) { toast("Save failed", true); }
+  }
+
+  async function saveNumber(key, rawValue) {
+    const value = parseFloat(rawValue);
+    if (isNaN(value)) return;
+    try {
+      await fetch(`${API}/config`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [key]: value }),
+      });
+      toast("Saved");
+    } catch(e) { toast("Save failed", true); }
+  }
+
+  async function resetDefaults() {
+    if (!confirm("Reset all settings to their default values?")) return;
+    try {
+      const r = await fetch(`${API}/config/reset`, { method: "POST" });
+      const cfg = await r.json();
+      await loadConfig();
+      toast("Settings reset to defaults");
+    } catch(e) { toast("Reset failed", true); }
+  }
+
+  async function clearCache() {
+    if (!confirm("Clear the entire stem split cache?")) return;
+    try {
+      const r = await fetch(`${API}/cache/clear`, { method: "POST" });
+      const d = await r.json();
+      toast(d.ok ? "Cache cleared" : d.error, !d.ok);
+      loadStats();
+    } catch(e) { toast("Failed", true); }
+  }
+
+  async function clearFailed() {
+    if (!confirm("Permanently delete all failed jobs?")) return;
+    try {
+      const r = await fetch(`${API}/jobs/clear-failed`, { method: "POST" });
+      const d = await r.json();
+      toast(`Deleted ${d.deleted} failed job${d.deleted === 1 ? "" : "s"}`);
+      loadStats();
+    } catch(e) { toast("Failed", true); }
+  }
+
+  let activeJobId = null;
+
+  async function loadJobs() {
+    const list = document.getElementById("job-list");
+    try {
+      const r = await fetch(`${API}/jobs`);
+      const jobs = await r.json();
+      if (!jobs.length) {
+        list.innerHTML = '<p style="color:var(--subtle);font-size:13px">No jobs found.</p>';
+        return;
+      }
+      list.innerHTML = jobs.map(j => {
+        const badge = `badge-${j.status || "unknown"}`;
+        const name = j.project_name || j.job_id.slice(0, 16);
+        const time = j.updated_at ? j.updated_at.replace("T", " ") : "";
+        return `<div>
+          <div class="job-row" onclick="viewLog('${j.job_id}', this)">
+            <span class="job-status-badge ${badge}">${j.status}</span>
+            <span class="job-name" title="${j.job_id}">${name}</span>
+            <span class="job-time">${time}</span>
+            <span style="font-size:11px;color:var(--subtle);flex-shrink:0">▼</span>
+          </div>
+          <div id="log-${j.job_id}" class="log-viewer">
+            <div id="log-content-${j.job_id}" class="log-content"></div>
+            <div class="log-footer">
+              <button class="log-refresh-btn" onclick="refreshLog('${j.job_id}')">↻ Refresh</button>
+            </div>
+          </div>
+        </div>`;
+      }).join("");
+      activeJobId = null;
+    } catch(e) { toast("Failed to load jobs", true); }
+  }
+
+  async function viewLog(jobId, row) {
+    const viewer = document.getElementById(`log-${jobId}`);
+    if (!viewer) return;
+    if (activeJobId === jobId && viewer.classList.contains("open")) {
+      viewer.classList.remove("open");
+      activeJobId = null;
+      return;
+    }
+    if (activeJobId) {
+      const prev = document.getElementById(`log-${activeJobId}`);
+      if (prev) prev.classList.remove("open");
+    }
+    activeJobId = jobId;
+    viewer.classList.add("open");
+    const content = document.getElementById(`log-content-${jobId}`);
+    if (content) content.textContent = "Loading...";
+    row.scrollIntoView({ behavior: "smooth", block: "start" });
+    await refreshLog(jobId);
+  }
+
+  async function refreshLog(jobId) {
+    const content = document.getElementById(`log-content-${jobId}`);
+    if (!content) return;
+    try {
+      const r = await fetch(`${API}/jobs/${jobId}/log`);
+      const d = await r.json();
+      content.textContent = d.log || "(empty)";
+      content.scrollTop = content.scrollHeight;
+    } catch(e) { content.textContent = "Failed to load log."; }
+  }
+
+  // Init
+  loadStats();
+  loadConfig();
+  loadJobs();
+</script>
+
+</body>
+</html>
