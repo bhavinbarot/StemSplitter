@@ -120,11 +120,13 @@ class YtDlpVideoDownloader(VideoDownloader):
             "no_warnings": self.quiet,
             "retries": 10,
             "fragment_retries": 10,
+            # Enable Node.js for YouTube n-challenge solving (yt-dlp defaults to deno only)
+            "js_runtimes": {"node": {}},
         }
         if cookie_file:
             options["cookiefile"] = cookie_file
         if self.audio_only:
-            options["format"] = "bestaudio/best"
+            options["format"] = "bestaudio/best/bestvideo*+bestaudio/bestvideo*/best"
             options["postprocessors"] = [
                 {
                     "key": "FFmpegExtractAudio",
@@ -172,17 +174,35 @@ class YtDlpVideoDownloader(VideoDownloader):
         return valid_files
 
     def _attempt_options(self, output_dir: Path, url: str, cookie_file: str | None = None) -> list[dict]:
-        options = [{"label": "default", "options": self._build_options(output_dir, cookie_file)}]
-        if self._is_youtube_url(url):
-            fallback = dict(options[0]["options"])
-            fallback["extractor_args"] = {
-                "youtube": {
-                    # Prefer mobile/TV clients to avoid intermittent web client SABR/403 failures.
-                    "player_client": ["android", "ios", "tv_embedded"],
-                }
-            }
-            options.append({"label": "youtube_client_fallback", "options": fallback})
-        return options
+        base = self._build_options(output_dir, cookie_file)
+        if not self._is_youtube_url(url):
+            return [{"label": "default", "options": base}]
+
+        # Attempt 1: ios — widely supported, bypasses most n-challenge restrictions
+        ios = dict(base)
+        ios["extractor_args"] = {"youtube": {"player_client": ["ios"]}}
+        attempts = [{"label": "ios", "options": ios}]
+
+        # Attempt 2: mweb — mobile web client, often less restricted than desktop
+        mweb = dict(base)
+        mweb["extractor_args"] = {"youtube": {"player_client": ["mweb"]}}
+        attempts.append({"label": "mweb", "options": mweb})
+
+        # Attempt 3: web_embedded — supports cookies + node n-challenge solving
+        web_embedded = dict(base)
+        web_embedded["extractor_args"] = {"youtube": {"player_client": ["web_embedded"]}}
+        attempts.append({"label": "web_embedded", "options": web_embedded})
+
+        # Attempt 4: default (no explicit client override)
+        attempts.append({"label": "default", "options": base})
+
+        # Attempt 5: tv_embedded — avoids n-challenge entirely (no cookies needed)
+        tv = dict(base)
+        tv.pop("cookiefile", None)
+        tv["extractor_args"] = {"youtube": {"player_client": ["tv_embedded"]}}
+        attempts.append({"label": "tv_embedded_fallback", "options": tv})
+
+        return attempts
 
     def _append_attempt_result(self, label: str, status: str, error: str | None = None) -> None:
         attempts = self.last_run_info.get("attempts")

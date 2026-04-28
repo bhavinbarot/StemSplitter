@@ -3,8 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Stem Splitter Login</title>
+  <title>Stem Splitter — Sign In</title>
   <style>
+    *, *::before, *::after { box-sizing: border-box; }
     :root { color-scheme: light; }
     body {
       margin: 0;
@@ -14,82 +15,287 @@
       font-family: "Segoe UI", Roboto, sans-serif;
       background: linear-gradient(160deg, #eff6ff 0%, #f8fafc 100%);
       color: #111827;
+      padding: 16px;
     }
     .card {
-      width: min(92vw, 420px);
+      width: min(94vw, 440px);
       background: #fff;
       border: 1px solid #dbe4f4;
-      border-radius: 14px;
-      padding: 28px;
-      box-shadow: 0 8px 28px rgba(15, 23, 42, 0.09);
-      text-align: center;
+      border-radius: 16px;
+      padding: 32px 28px 28px;
+      box-shadow: 0 8px 32px rgba(15,23,42,0.10);
     }
-    .brand {
-      width: 64px;
-      height: 64px;
-      object-fit: contain;
-      margin: 0 auto 14px;
-      display: block;
+    .brand-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 20px;
     }
-    h1 {
-      margin: 0 0 8px 0;
-      font-size: 24px;
+    .brand-row img { width: 40px; height: 40px; object-fit: contain; }
+    .brand-row span { font-size: 20px; font-weight: 700; color: #1e3a5f; }
+
+    /* Tabs */
+    .tabs {
+      display: flex;
+      gap: 4px;
+      background: #f1f5f9;
+      border-radius: 10px;
+      padding: 4px;
+      margin-bottom: 22px;
     }
-    p {
-      margin: 0 0 18px 0;
-      color: #4b5563;
+    .tab-btn {
+      flex: 1;
+      padding: 8px 0;
+      border: none;
+      border-radius: 7px;
+      background: transparent;
       font-size: 14px;
+      font-weight: 600;
+      color: #64748b;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
     }
+    .tab-btn.active {
+      background: #fff;
+      color: #1e40af;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.10);
+    }
+
+    /* Forms */
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    .field { margin-bottom: 14px; }
+    .field label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: #374151;
+      margin-bottom: 5px;
+    }
+    .field input {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      font-size: 14px;
+      color: #111827;
+      background: #f9fafb;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .field input:focus { border-color: #2563eb; background: #fff; }
+
+    .submit-btn {
+      width: 100%;
+      padding: 11px;
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      border-radius: 9px;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      margin-top: 4px;
+      transition: background 0.15s;
+    }
+    .submit-btn:hover { background: #1d4ed8; }
+
+    /* Password rules */
+    .pw-rules {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin-bottom: 14px;
+      font-size: 12px;
+      color: #475569;
+    }
+    .pw-rules p { margin: 0 0 5px; font-weight: 600; color: #334155; }
+    .pw-rules ul { margin: 0; padding-left: 16px; }
+    .pw-rules li { margin-bottom: 2px; }
+    .rule-ok  { color: #16a34a; }
+    .rule-bad { color: #94a3b8; }
+
+    /* Divider */
+    .divider {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 18px 0;
+      color: #94a3b8;
+      font-size: 12px;
+    }
+    .divider::before, .divider::after {
+      content: "";
+      flex: 1;
+      height: 1px;
+      background: #e5e7eb;
+    }
+
+    /* Google button */
     .google-btn {
-      display: inline-flex;
+      display: flex;
       align-items: center;
       justify-content: center;
       gap: 10px;
       width: 100%;
-      padding: 12px 14px;
-      border-radius: 10px;
+      padding: 11px 14px;
+      border-radius: 9px;
       border: 1px solid #d1d5db;
       background: #fff;
       color: #111827;
       text-decoration: none;
       font-weight: 600;
+      font-size: 14px;
+      transition: background 0.15s;
     }
+    .google-btn:hover { background: #f9fafb; }
     .google-dot {
-      width: 18px;
-      height: 18px;
+      width: 18px; height: 18px;
       border-radius: 50%;
       background: conic-gradient(from 45deg, #4285f4 0 25%, #34a853 25% 50%, #fbbc05 50% 75%, #ea4335 75% 100%);
+      flex-shrink: 0;
     }
-    .note {
-      margin-top: 14px;
-      font-size: 12px;
-      color: #6b7280;
-    }
-    .error {
-      margin-top: 12px;
+
+    /* Error / success */
+    .alert {
+      margin-bottom: 16px;
       font-size: 13px;
-      color: #b91c1c;
-      background: #fef2f2;
-      border: 1px solid #fecaca;
       border-radius: 8px;
-      padding: 9px;
+      padding: 10px 12px;
     }
+    .alert-error { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; }
+    .alert-info  { background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; }
+
+    .note { margin-top: 12px; font-size: 12px; color: #6b7280; text-align: center; }
   </style>
 </head>
 <body>
   <main class="card">
-    <img class="brand" src="/ui-icon/brand" alt="Stem Splitter">
-    <h1>Welcome</h1>
-    <p>Sign in with Google to use Stem Splitter.</p>
-    {% if auth_enabled %}
-      <a class="google-btn" href="/auth/google">
+    <div class="brand-row">
+      <img src="/ui-icon/brand" alt="Stem Splitter" onerror="this.style.display='none'">
+      <span>Stem Splitter</span>
+    </div>
+
+    {% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+
+    <div class="tabs">
+      <button class="tab-btn {% if tab != 'register' %}active{% endif %}" data-tab="login">Sign In</button>
+      <button class="tab-btn {% if tab == 'register' %}active{% endif %}" data-tab="register">Register</button>
+    </div>
+
+    <!-- LOGIN PANEL -->
+    <div class="tab-panel {% if tab != 'register' %}active{% endif %}" id="panel-login">
+      <form method="post" action="{{ url_for('auth_local_login') }}">
+        <input type="hidden" name="next" value="{{ request.args.get('next', '') }}">
+        <div class="field">
+          <label for="login-username">Username</label>
+          <input type="text" id="login-username" name="username" autocomplete="username"
+                 autocapitalize="none" spellcheck="false" required placeholder="your_username">
+        </div>
+        <div class="field">
+          <label for="login-password">Password</label>
+          <input type="password" id="login-password" name="password" autocomplete="current-password" required>
+        </div>
+        <button class="submit-btn" type="submit">Sign In</button>
+      </form>
+
+      {% if auth_enabled %}
+      <div class="divider">or</div>
+      <a class="google-btn" href="{{ url_for('auth_google') }}">
         <span class="google-dot" aria-hidden="true"></span>
         Continue with Google
       </a>
-      <div class="note">Only Google authentication is enabled. We store only your name and email for login.</div>
-    {% else %}
-      <div class="error">Google login is not configured on server. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.</div>
-    {% endif %}
+      {% endif %}
+
+      <p class="note">Don't have an account? Click <strong>Register</strong> above.</p>
+    </div>
+
+    <!-- REGISTER PANEL -->
+    <div class="tab-panel {% if tab == 'register' %}active{% endif %}" id="panel-register">
+      <form method="post" action="{{ url_for('auth_local_register') }}" id="register-form">
+        <div class="field">
+          <label for="reg-name">Full Name</label>
+          <input type="text" id="reg-name" name="name" autocomplete="name" required placeholder="Jane Smith">
+        </div>
+        <div class="field">
+          <label for="reg-username">Username <span style="font-weight:400;color:#94a3b8">(3–30 chars, letters/numbers/_)</span></label>
+          <input type="text" id="reg-username" name="username" autocomplete="username"
+                 autocapitalize="none" spellcheck="false" required placeholder="jane_smith"
+                 pattern="[a-zA-Z0-9_]{3,30}" title="3–30 characters: letters, numbers, underscores">
+        </div>
+        <div class="field">
+          <label for="reg-phone">Phone Number <span style="font-weight:400;color:#94a3b8">(optional)</span></label>
+          <input type="tel" id="reg-phone" name="phone" autocomplete="tel" placeholder="+1 555 000 0000">
+        </div>
+        <div class="pw-rules" id="pw-rules">
+          <p>Password must include:</p>
+          <ul>
+            <li id="rule-len"  class="rule-bad">At least 8 characters</li>
+            <li id="rule-upper" class="rule-bad">One uppercase letter (A–Z)</li>
+            <li id="rule-lower" class="rule-bad">One lowercase letter (a–z)</li>
+            <li id="rule-digit" class="rule-bad">One number (0–9)</li>
+            <li id="rule-special" class="rule-bad">One special character (!@#$%^&amp;* etc.)</li>
+          </ul>
+        </div>
+        <div class="field">
+          <label for="reg-password">Password</label>
+          <input type="password" id="reg-password" name="password" autocomplete="new-password" required>
+        </div>
+        <div class="field">
+          <label for="reg-confirm">Confirm Password</label>
+          <input type="password" id="reg-confirm" name="confirm_password" autocomplete="new-password" required>
+        </div>
+        <button class="submit-btn" type="submit" id="reg-submit">Create Account</button>
+      </form>
+    </div>
   </main>
+
+  <script>
+    // Tab switching
+    document.querySelectorAll(".tab-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const tab = btn.dataset.tab;
+        document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+        document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
+        btn.classList.add("active");
+        document.getElementById("panel-" + tab).classList.add("active");
+      });
+    });
+
+    // Live password rule checking
+    const pwInput = document.getElementById("reg-password");
+    const rules = {
+      "rule-len":     pw => pw.length >= 8,
+      "rule-upper":   pw => /[A-Z]/.test(pw),
+      "rule-lower":   pw => /[a-z]/.test(pw),
+      "rule-digit":   pw => /\d/.test(pw),
+      "rule-special": pw => /[!@#$%^&*()\-_=+\[\]{}|;':",.<>/?]/.test(pw),
+    };
+    pwInput.addEventListener("input", () => {
+      const pw = pwInput.value;
+      for (const [id, test] of Object.entries(rules)) {
+        const el = document.getElementById(id);
+        if (el) {
+          el.className = test(pw) ? "rule-ok" : "rule-bad";
+          el.textContent = (test(pw) ? "✓ " : "") + el.textContent.replace(/^✓ /, "");
+        }
+      }
+    });
+
+    // Confirm password match indicator
+    const confirmInput = document.getElementById("reg-confirm");
+    confirmInput.addEventListener("input", () => {
+      if (confirmInput.value && confirmInput.value !== pwInput.value) {
+        confirmInput.style.borderColor = "#ef4444";
+      } else {
+        confirmInput.style.borderColor = "";
+      }
+    });
+  </script>
 </body>
 </html>

@@ -10,6 +10,7 @@ import uuid
 import zipfile
 import math
 import shutil
+import tempfile
 import logging
 import json
 import hashlib
@@ -17,11 +18,13 @@ from shutil import disk_usage, which
 from functools import wraps
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 from urllib.parse import urlparse
 
 from authlib.integrations.flask_client import OAuth
 from flask import Flask, abort, jsonify, redirect, render_template, request, send_file, session, url_for
 from werkzeug.middleware.proxy_fix import ProxyFix
+from werkzeug.security import check_password_hash, generate_password_hash
 
 LITE_MODE = os.getenv("LITE_MODE", "false").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -29,6 +32,8 @@ if __package__:
     from . import admin_config
     from . import bpm as bpm_detector
     from . import key_detection as key_detector
+    from . import db as app_db
+    from . import marker_detection as _marker_detector
     if not LITE_MODE:
         from .video_downloader import VideoDownloadError, YtDlpVideoDownloader
         from . import cache as stem_cache
@@ -36,6 +41,8 @@ else:
     import admin_config
     import bpm as bpm_detector
     import key_detection as key_detector
+    import db as app_db
+    import marker_detection as _marker_detector
     if not LITE_MODE:
         from video_downloader import VideoDownloadError, YtDlpVideoDownloader
         import cache as stem_cache
@@ -66,6 +73,16 @@ JOB_ROOT.mkdir(parents=True, exist_ok=True)
 if not LITE_MODE:
     stem_cache.init(JOB_ROOT / "stem_cache.db")
 admin_config.init(JOB_ROOT / "admin_config.json")
+_gauth_db_path = Path(os.getenv("APP_DB_PATH", str(JOB_ROOT / "gauth.db")))
+app_db.init(_gauth_db_path)
+
+# Comma-separated Google emails that are always treated as admin.
+# E.g.  ADMIN_EMAILS=me@gmail.com,partner@gmail.com
+_ADMIN_EMAILS: set[str] = {
+    e.strip().lower()
+    for e in os.getenv("ADMIN_EMAILS", "").split(",")
+    if e.strip()
+}
 JOB_META_NAME = "job.json"
 ALLOWED_SUFFIXES = {".mp3", ".mpe", ".wav", ".flac", ".m4a", ".aac", ".ogg"}
 SHARE_TOKENS_FILE = JOB_ROOT / "share_tokens.json"
@@ -99,6 +116,120 @@ def _detect_compute_device() -> str:
 
 COMPUTE_DEVICE = _detect_compute_device()
 APP_STARTED_AT = datetime.now()
+
+
+def _migrate_jobs_to_db() -> None:
+    """
+    One-time background migration: scan JOB_ROOT and populate app.db with any
+    projects not yet indexed. Safe to run on every startup — upsert is idempotent.
+    Also stores source_url from job.json so URL-based dedup works for legacy jobs.
+    """
+    try:
+        indexed = 0
+        for job_dir in JOB_ROOT.iterdir():
+            if not job_dir.is_dir():
+                continue
+            job_id = job_dir.name
+            if not _is_valid_job_id(job_id):
+                continue
+            # Skip if already indexed and recently updated
+            existing = app_db.get_project(job_id)
+            if existing and existing.get("updated_at", "") > "2020":
+                continue
+            job = _get_job(job_id)
+            if not job:
+                continue
+            name = (job.get("project_name") or "").strip()
+            if not name:
+                sf = (job.get("source_file") or "").strip()
+                name = Path(sf).stem if sf else f"Project {job_id[:8]}"
+            app_db.upsert_project(
+                job_id=job_id,
+                name=name,
+                source_url=(job.get("source_url") or "").strip(),
+                source_file=(job.get("source_file") or "").strip(),
+                status=job.get("status", "queued"),
+                stem_count=len(job.get("stem_files") or {}),
+                folder=(job.get("folder") or "").strip(),
+                created_at=job.get("created_at") or "",
+                updated_at=job.get("updated_at") or "",
+            )
+            # Grant access to all existing users for every legacy project
+            app_db.grant_access_to_all_users(job_id)
+            indexed += 1
+        if indexed:
+            app.logger.info("db_migration indexed=%d legacy projects", indexed)
+    except Exception:
+        app.logger.exception("db_migration failed")
+
+
+def _reset_stale_jobs() -> None:
+    """
+    On startup, any job that was left in 'running' or 'queued' state from a previous
+    server run will never complete — the processing threads are gone. Mark them failed
+    so they don't appear stuck in the UI forever.
+    """
+    try:
+        stale_statuses = {"running", "queued"}
+        reset = 0
+        if JOB_ROOT.exists():
+            for job_dir in JOB_ROOT.iterdir():
+                if not job_dir.is_dir():
+                    continue
+                job_id = job_dir.name
+                if not _is_valid_job_id(job_id):
+                    continue
+                meta_path = job_dir / JOB_META_NAME
+                if not meta_path.exists():
+                    continue
+                try:
+                    data = json.loads(meta_path.read_text())
+                    if data.get("status") in stale_statuses:
+                        data["status"] = "failed"
+                        data["message"] = "Interrupted — server was restarted while this job was in progress."
+                        meta_path.write_text(json.dumps(data))
+                        app_db.upsert_project(
+                            job_id=job_id,
+                            name=data.get("project_name") or f"Project {job_id[:8]}",
+                            source_url=(data.get("source_url") or "").strip(),
+                            source_file=(data.get("source_file") or "").strip(),
+                            status="failed",
+                            stem_count=len(data.get("stem_files") or {}),
+                            folder=(data.get("folder") or "").strip(),
+                            created_at=data.get("created_at") or "",
+                            updated_at=data.get("updated_at") or "",
+                        )
+                        reset += 1
+                except Exception:
+                    pass
+        # Also sweep DB for running/queued records whose directory no longer exists
+        all_projects, _ = app_db.list_all_projects(limit=10000)
+        for p in all_projects:
+            if p.get("status") in stale_statuses:
+                job_id = p["job_id"]
+                if not _job_dir(job_id).exists():
+                    app_db.upsert_project(
+                        job_id=job_id,
+                        name=p.get("name") or f"Project {job_id[:8]}",
+                        source_url=p.get("source_url") or "",
+                        source_file=p.get("source_file") or "",
+                        status="failed",
+                        stem_count=p.get("stem_count") or 0,
+                        folder=p.get("folder") or "",
+                        created_at=p.get("created_at") or "",
+                        updated_at=p.get("updated_at") or "",
+                    )
+                    reset += 1
+
+        if reset:
+            app.logger.info("startup_reset stale_jobs=%d", reset)
+    except Exception:
+        app.logger.exception("startup reset of stale jobs failed")
+
+
+# Run migration and stale-job reset in background so startup is not delayed
+threading.Thread(target=_migrate_jobs_to_db, daemon=True).start()
+threading.Thread(target=_reset_stale_jobs, daemon=True).start()
 
 
 def _resolve_ui_version() -> str:
@@ -177,10 +308,105 @@ def _is_logged_in() -> bool:
     return bool(session.get("user"))
 
 
+def _current_user_db() -> Optional[dict]:
+    """Return the unified users-table row for the session user (Google or local)."""
+    user = session.get("user", {})
+    # Local auth: id is 'local:<local_id>'
+    if user.get("auth_type") == "local":
+        uid = user.get("sub", "")
+        if uid:
+            return app_db.get_user_by_sub(uid)
+        return None
+    # Google auth
+    sub = user.get("sub")
+    if sub:
+        return app_db.get_user_by_sub(sub)
+    email = user.get("email", "").strip().lower()
+    if email:
+        return app_db.get_user_by_email(email)
+    return None
+
+
+def _is_admin() -> bool:
+    """True if the current session user has admin role."""
+    user = session.get("user", {})
+    # Fast path: role stored in session
+    if user.get("role") == "admin":
+        return True
+    # Google users: also check ADMIN_EMAILS
+    email = user.get("email", "").strip().lower()
+    if email and email in _ADMIN_EMAILS:
+        return True
+    db_user = _current_user_db()
+    return bool(db_user and db_user.get("role") == "admin")
+
+
+def _is_contributor() -> bool:
+    """True if the current session user has contributor role (but not admin)."""
+    if _is_admin():
+        return False
+    user = session.get("user", {})
+    if user.get("role") == "contributor":
+        return True
+    db_user = _current_user_db()
+    return bool(db_user and db_user.get("role") == "contributor")
+
+
+def _can_edit_content() -> bool:
+    """True if the user may write to canonical job.json (admin or contributor)."""
+    return _is_admin() or _is_contributor()
+
+
+def _current_user_id() -> Optional[str]:
+    """Return the stable unified user id for the current session."""
+    db_user = _current_user_db()
+    return db_user["id"] if db_user else None
+
+
+def _has_job_access(job_id: str) -> bool:
+    """Return True if the current session has read access to this job."""
+    if not AUTH_REQUIRED:
+        return True
+    if _is_admin():
+        return True
+    user_id = _current_user_id()
+    if not user_id:
+        return False
+    # Check in-memory for in-flight jobs (not yet in DB)
+    with jobs_lock:
+        job = jobs.get(job_id)
+        if job and job.get("created_by") == user_id:
+            return True
+    # Check DB (direct access or group membership)
+    return app_db.has_access(job_id, user_id)
+
+
+# ─── Password validation ──────────────────────────────────────────────────────
+
+_PW_SPECIAL = r"""!@#$%^&*()_+\-=\[\]{}|;':",./<>?"""
+
+def validate_password(password: str) -> Optional[str]:
+    """Return an error message string, or None if the password is valid."""
+    if len(password) < 8:
+        return "Password must be at least 8 characters."
+    if not re.search(r"[A-Z]", password):
+        return "Password must contain at least one uppercase letter."
+    if not re.search(r"[a-z]", password):
+        return "Password must contain at least one lowercase letter."
+    if not re.search(r"\d", password):
+        return "Password must contain at least one number."
+    if not re.search(rf"[{_PW_SPECIAL}]", password):
+        return "Password must contain at least one special character (!@#$%^&* etc.)."
+    return None
+
+
 def _auth_response():
     if request.path.startswith("/api/") or request.path.startswith("/start") or request.path.startswith("/status") or request.path.startswith("/download"):
-        return jsonify({"ok": False, "error": "Please login with Google first."}), 401
-    return redirect(url_for("login", next=request.path))
+        return jsonify({"ok": False, "error": "Login required."}), 401
+    # request.path is the Flask-internal path (prefix stripped, e.g. "/" for "/stemsplitter/").
+    # The browser needs the full browser-visible path so the post-login redirect works correctly.
+    browser_path = (_APP_PREFIX + request.path) if _APP_PREFIX else request.path
+    return redirect(url_for("login", next=browser_path))
 
 
 @app.after_request
@@ -202,6 +428,20 @@ def login_required(func):
             return func(*args, **kwargs)
         return _auth_response()
 
+    return wrapped
+
+
+def admin_required(func):
+    """Allow only users with admin role (or in ADMIN_EMAILS)."""
+    @wraps(func)
+    def wrapped(*args, **kwargs):
+        if not AUTH_REQUIRED:
+            return func(*args, **kwargs)
+        if not _is_logged_in():
+            return _auth_response()
+        if not _is_admin():
+            return jsonify({"ok": False, "error": "Admin access required."}), 403
+        return func(*args, **kwargs)
     return wrapped
 
 
@@ -311,19 +551,36 @@ def _ensure_stems_available(job_id: str, job: dict) -> str:
 
     try:
         with zipfile.ZipFile(zip_path) as archive:
+            # Build a lookup by exact filename AND by stem suffix
+            # ZIP often names files like "songname_vocals.mp3" while stem_files has "vocals.mp3"
             archive_names = {Path(name).name: name for name in archive.namelist()}
             extracted_any = False
-            for stem_filename in stem_files.values():
-                member_name = archive_names.get(Path(stem_filename).name)
+            extracted_map: dict[str, str] = {}  # stem_key → extracted filename
+            for stem_key, stem_filename in stem_files.items():
+                bare_name = Path(stem_filename).name
+                # 1. Exact match
+                member_name = archive_names.get(bare_name)
+                # 2. Fallback: find archive entry whose stem ends with _{stem_key}
+                if not member_name:
+                    member_name = next(
+                        (n for n in archive_names
+                         if Path(n).stem.lower().endswith(f"_{stem_key}")
+                         or Path(n).stem.lower() == stem_key),
+                        None,
+                    )
                 if not member_name:
                     continue
-                output_path = restored_root / Path(stem_filename).name
+                # Use the actual archive filename as the output filename
+                out_name = Path(member_name).name
+                output_path = restored_root / out_name
                 if output_path.exists():
                     extracted_any = True
+                    extracted_map[stem_key] = out_name
                     continue
                 with archive.open(member_name) as source, output_path.open("wb") as target:
                     shutil.copyfileobj(source, target)
                 extracted_any = True
+                extracted_map[stem_key] = out_name
     except Exception:
         app.logger.exception("failed_to_restore_stems job_id=%s zip=%s", job_id, zip_path)
         return ""
@@ -331,7 +588,11 @@ def _ensure_stems_available(job_id: str, job: dict) -> str:
     if not extracted_any:
         return ""
 
-    restored_stem_files = {key: Path(name).name for key, name in stem_files.items()}
+    # Use the actual extracted filenames (may differ from stem_files values)
+    restored_stem_files = {
+        key: extracted_map.get(key, Path(name).name)
+        for key, name in stem_files.items()
+    }
     restored_stems = {
         key: Path(job.get("stems", {}).get(key, filename)).name
         for key, filename in restored_stem_files.items()
@@ -351,9 +612,10 @@ def _get_stem_path(job: dict, stem_key: str) -> Path | None:
     if job_id:
         ensured_root = _ensure_stems_available(job_id, job)
         if ensured_root:
-            job = dict(job)
+            # Re-read job so we get the updated stem_files written by _ensure_stems_available
+            updated_job = _get_job(job_id)
+            job = updated_job if updated_job else dict(job)
             job["stem_root"] = ensured_root
-            job["stem_files"] = {key: Path(name).name for key, name in job.get("stem_files", {}).items()}
 
     stem_root = job.get("stem_root")
     stem_file = job.get("stem_files", {}).get(stem_key)
@@ -420,11 +682,13 @@ def _revoke_share_token(token: str):
         _save_share_tokens(tokens)
 
 
-def _ensure_pitch_variant(stem_path: Path, job_id: str, semitones: int) -> Path:
+def _ensure_pitch_variant(stem_path: Path, job_id: str, semitones: float) -> Path:
     pitch_root = JOB_ROOT / job_id / "pitch_cache"
     pitch_root.mkdir(parents=True, exist_ok=True)
     sign = "p" if semitones >= 0 else "m"
-    variant_name = f"{stem_path.stem}_pitch_{sign}{abs(semitones):02d}{stem_path.suffix.lower()}"
+    # Encode as integer hundredths to avoid dots in filename (e.g. +1.6460 → p00165)
+    semitones_hundredths = int(round(abs(semitones) * 100))
+    variant_name = f"{stem_path.stem}_pitch_{sign}{semitones_hundredths:05d}{stem_path.suffix.lower()}"
     output_path = pitch_root / variant_name
     if output_path.exists():
         return output_path
@@ -499,7 +763,7 @@ def _resolve_stem_paths(job: dict) -> dict[str, Path]:
 @login_required
 def index():
     ui_version = _resolve_ui_version()
-    return render_template("index.html", ui_version=ui_version, compute_device=COMPUTE_DEVICE, current_user=session.get("user"), share_token=None, share_folder=None, lite_mode=LITE_MODE, app_prefix=_APP_PREFIX)
+    return render_template("index.html", ui_version=ui_version, compute_device=COMPUTE_DEVICE, current_user=session.get("user"), share_token=None, share_folder=None, lite_mode=LITE_MODE, app_prefix=_APP_PREFIX, is_admin=_is_admin(), is_contributor=_is_contributor())
 
 
 @app.get("/login")
@@ -508,7 +772,132 @@ def login():
         return redirect(url_for("index"))
     if _is_logged_in():
         return redirect(url_for("index"))
-    return render_template("login.html", auth_enabled=AUTH_ENABLED)
+    error = request.args.get("error", "")
+    tab = request.args.get("tab", "login")
+    return render_template("login.html", auth_enabled=AUTH_ENABLED, error=error, tab=tab)
+
+
+@app.post("/auth/local/login")
+def auth_local_login():
+    username = (request.form.get("username") or "").strip().lower()
+    password = request.form.get("password") or ""
+    _raw_next = (request.form.get("next") or "").strip()
+    # If next is a bare Flask-internal path (e.g. "/") without the app prefix,
+    # prepend the prefix so the browser lands at the right URL after login.
+    if _raw_next and _APP_PREFIX and not _raw_next.startswith(_APP_PREFIX) and not _raw_next.startswith("http"):
+        _raw_next = _APP_PREFIX + ("" if _raw_next.startswith("/") else "/") + _raw_next.lstrip("/")
+    next_url = _raw_next or url_for("index")
+    if not username or not password:
+        return redirect(url_for("login", error="Username and password are required.", next=next_url))
+    lu = app_db.get_local_user(username)
+    if not lu or not lu.get("is_active"):
+        return redirect(url_for("login", error="Invalid username or password.", next=next_url))
+    if not check_password_hash(lu["password_hash"], password):
+        app.logger.warning("local_login_failed username=%s ip=%s", username, request.remote_addr)
+        return redirect(url_for("login", error="Invalid username or password.", next=next_url))
+    # Upsert into unified users table so project_access works
+    unified_id = app_db.local_user_to_unified_id(lu["id"])
+    app_db.upsert_user(
+        sub=unified_id,
+        email=f"{username}@local",
+        name=lu.get("name") or username,
+        picture="",
+        force_role=lu.get("role"),
+    )
+    app_db.touch_local_user(lu["id"])
+    session["user"] = {
+        "sub": unified_id,
+        "auth_type": "local",
+        "local_id": lu["id"],
+        "name": lu.get("name") or username,
+        "username": username,
+        "email": f"{username}@local",
+        "picture": "",
+        "role": lu.get("role", "user"),
+    }
+    app.logger.info("local_login_success username=%s role=%s ip=%s", username, lu.get("role"), request.remote_addr)
+    return redirect(next_url)
+
+
+@app.post("/auth/local/register")
+def auth_local_register():
+    name     = (request.form.get("name") or "").strip()
+    username = (request.form.get("username") or "").strip().lower()
+    phone    = (request.form.get("phone") or "").strip()
+    password = request.form.get("password") or ""
+    confirm  = request.form.get("confirm_password") or ""
+    next_url = url_for("index")
+
+    def _fail(msg):
+        return redirect(url_for("login", error=msg, tab="register"))
+
+    if not name or not username or not password:
+        return _fail("Name, username, and password are required.")
+    if not re.match(r"^[a-z0-9_]{3,30}$", username):
+        return _fail("Username must be 3–30 characters: letters, numbers, underscores only.")
+    if app_db.local_username_exists(username):
+        return _fail("That username is already taken.")
+    if password != confirm:
+        return _fail("Passwords do not match.")
+    pw_error = validate_password(password)
+    if pw_error:
+        return _fail(pw_error)
+
+    lu = app_db.create_local_user(
+        username=username,
+        name=name,
+        phone=phone,
+        password_hash=generate_password_hash(password),
+    )
+    # Upsert into unified users table
+    unified_id = app_db.local_user_to_unified_id(lu["id"])
+    app_db.upsert_user(
+        sub=unified_id,
+        email=f"{username}@local",
+        name=name,
+        picture="",
+        force_role="user",
+    )
+    session["user"] = {
+        "sub": unified_id,
+        "auth_type": "local",
+        "local_id": lu["id"],
+        "name": name,
+        "username": username,
+        "email": f"{username}@local",
+        "picture": "",
+        "role": "user",
+    }
+    app.logger.info("local_register_success username=%s ip=%s", username, request.remote_addr)
+    return redirect(next_url)
+
+
+@app.post("/api/v1/auth/change-password")
+@login_required
+def api_change_password():
+    user = session.get("user", {})
+    if user.get("auth_type") != "local":
+        return jsonify({"ok": False, "error": "Password change is only available for local accounts."}), 400
+    local_id = user.get("local_id")
+    if not local_id:
+        return jsonify({"ok": False, "error": "Session error — please log in again."}), 401
+    data = request.get_json(silent=True) or {}
+    current_pw  = data.get("current_password", "")
+    new_pw      = data.get("new_password", "")
+    confirm_pw  = data.get("confirm_password", "")
+    lu = app_db.get_local_user_by_id(local_id)
+    if not lu:
+        return jsonify({"ok": False, "error": "User not found."}), 404
+    if not check_password_hash(lu["password_hash"], current_pw):
+        return jsonify({"ok": False, "error": "Current password is incorrect."}), 400
+    if new_pw != confirm_pw:
+        return jsonify({"ok": False, "error": "New passwords do not match."}), 400
+    pw_error = validate_password(new_pw)
+    if pw_error:
+        return jsonify({"ok": False, "error": pw_error}), 400
+    app_db.update_local_user_password(local_id, generate_password_hash(new_pw))
+    app.logger.info("change_password_success username=%s ip=%s", lu.get("username"), request.remote_addr)
+    return jsonify({"ok": True, "message": "Password changed successfully."})
 
 
 @app.get("/auth/google")
@@ -518,7 +907,8 @@ def auth_google():
     app.logger.info("google_login_start ip=%s next=%s", request.remote_addr, request.args.get("next", ""))
     _write_login_event("google_login_start", next=request.args.get("next", ""))
     session["next_url"] = request.args.get("next") or url_for("index")
-    redirect_uri = url_for("auth_google_callback", _external=True, _scheme="https")
+    _scheme = "http" if request.host.startswith(("localhost", "127.0.0.1")) else "https"
+    redirect_uri = url_for("auth_google_callback", _external=True, _scheme=_scheme)
     return oauth.google.authorize_redirect(redirect_uri, prompt="select_account")
 
 
@@ -533,19 +923,31 @@ def auth_google_callback():
             userinfo = oauth.google.userinfo()
         email = (userinfo.get("email") or "").strip()
         name = (userinfo.get("name") or "").strip()
+        picture = (userinfo.get("picture") or "").strip()
+        sub = (userinfo.get("sub") or "").strip()
         if not name and email:
             name = email.split("@", 1)[0]
+
+        # Determine role: ADMIN_EMAILS list takes precedence over DB value
+        force_role = "admin" if email.lower() in _ADMIN_EMAILS else None
+        db_user = app_db.upsert_user(sub, email, name or "User", picture, force_role=force_role)
+
         session["user"] = {
-            "name": name or "User",
+            "sub": sub,
+            "name": db_user.get("name") or name or "User",
             "email": email,
+            "picture": picture,
+            "role": db_user.get("role", "user"),
         }
         app.logger.info(
-            "google_login_success email=%s name=%s ip=%s",
+            "google_login_success email=%s name=%s role=%s ip=%s",
             email or "-",
             (name or "User"),
+            db_user.get("role", "user"),
             request.remote_addr,
         )
-        _write_login_event("google_login_success", email=email, name=(name or "User"))
+        _write_login_event("google_login_success", email=email, name=(name or "User"),
+                           role=db_user.get("role", "user"))
         next_url = session.pop("next_url", url_for("index"))
         return redirect(next_url)
     except Exception as exc:
@@ -576,13 +978,19 @@ def logout():
 
 @app.get("/api/v1/auth/session")
 def api_auth_session():
+    user = session.get("user", {})
+    user_id = _current_user_id() if _is_logged_in() else None
+    effective_settings = app_db.get_effective_settings(user_id) if user_id else {}
     return jsonify(
         {
             "ok": True,
             "auth_required": AUTH_REQUIRED,
             "auth_enabled": AUTH_ENABLED,
             "logged_in": _is_logged_in(),
-            "user": session.get("user", {}),
+            "user": user,
+            "is_admin": _is_admin() if _is_logged_in() else False,
+            "is_contributor": _is_contributor() if _is_logged_in() else False,
+            "settings": effective_settings,
         }
     )
 
@@ -640,6 +1048,28 @@ def brand_icon():
     return send_file(icon_path, mimetype="image/png")
 
 
+def _sync_job_to_db(job_id: str, job: dict) -> None:
+    """Keep the project index in app.db in sync with job.json."""
+    try:
+        name = (job.get("project_name") or "").strip()
+        if not name:
+            sf = (job.get("source_file") or "").strip()
+            name = Path(sf).stem if sf else f"Project {job_id[:8]}"
+        app_db.upsert_project(
+            job_id=job_id,
+            name=name,
+            source_url=(job.get("source_url") or "").strip(),
+            source_file=(job.get("source_file") or "").strip(),
+            status=job.get("status", "queued"),
+            stem_count=len(job.get("stem_files") or {}),
+            folder=(job.get("folder") or "").strip(),
+            created_by=job.get("created_by"),
+            updated_at=datetime.now().isoformat(timespec="seconds"),
+        )
+    except Exception:
+        app.logger.exception("_sync_job_to_db failed job_id=%s", job_id)
+
+
 def _update_job(job_id: str, **kwargs):
     job_snapshot = None
     with jobs_lock:
@@ -648,6 +1078,9 @@ def _update_job(job_id: str, **kwargs):
             job_snapshot = dict(jobs[job_id])
     if job_snapshot:
         _persist_job_snapshot(job_id, job_snapshot)
+        # Sync index on status changes and metadata saves
+        if "status" in kwargs or "project_name" in kwargs or "folder" in kwargs or "mixer_state" in kwargs:
+            _sync_job_to_db(job_id, job_snapshot)
 
 
 def _job_progress(job_id: str) -> int:
@@ -1417,6 +1850,167 @@ def bulk_split():
     return jsonify({"ok": True, "jobs": job_ids})
 
 
+@app.get("/api/v1/cookie/check")
+@login_required
+@full_mode_only
+def cookie_check():
+    """Quick test of whether the configured YouTube cookies are still valid."""
+    downloader = YtDlpVideoDownloader(quiet=True)
+    cookie_file, cookie_source, cookie_warning = downloader._resolve_cookie_file()
+
+    if not cookie_file:
+        return jsonify({
+            "status": "none",
+            "message": "No cookies configured — some videos may be blocked.",
+            "cookie_source": None,
+            "cookie_age_hours": None,
+        })
+
+    # Report how old the cookie file is
+    try:
+        age_hours = round((time.time() - os.path.getmtime(cookie_file)) / 3600, 1)
+    except Exception:
+        age_hours = None
+
+    # Quick test: metadata-only fetch of a known public video using web_embedded + cookies.
+    # Try two videos in sequence; if the first is unavailable (geo/removed) that is NOT a
+    # cookie failure — move on to the second.  Only 403 / "Sign in" / bot errors mean bad cookies.
+    _COOKIE_TEST_URLS = [
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQ",   # Rick Astley — very stable
+        "https://www.youtube.com/watch?v=9bZkp7q19f0",   # Gangnam Style — fallback
+    ]
+    ydl_opts: dict = {
+        "quiet": True,
+        "no_warnings": True,
+        "noplaylist": True,
+        "cookiefile": cookie_file,
+        "extractor_args": {"youtube": {"player_client": ["web_embedded"]}},
+        "js_runtimes": {"node": {}},
+    }
+
+    def _is_unavailable_error(err_str: str) -> bool:
+        """True when the video itself is inaccessible but cookies are fine."""
+        low = err_str.lower()
+        return (
+            "unavailable" in low
+            or "this video is not available" in low
+            or "error code: 152" in low
+            or "has been removed" in low
+            or "private video" in low
+            or "not supported in this application" in low   # embed-restricted video
+            or "watch video on youtube" in low              # embed restriction message
+        )
+
+    def _is_auth_error(err_str: str) -> bool:
+        """True when YouTube rejected the cookies / requires login."""
+        low = err_str.lower()
+        return "403" in err_str or "sign in" in low or "bot" in low or "login" in low
+
+    import yt_dlp as _yt_dlp
+    status = "invalid"
+    message = "Cookie check failed: unknown error."
+    for _test_url in _COOKIE_TEST_URLS:
+        try:
+            with _yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.extract_info(_test_url, download=False)
+            # Success — cookies are working
+            status = "valid"
+            message = "Cookies are valid — ready to download."
+            if age_hours is not None and age_hours > 72:
+                status = "expiring"
+                message = f"Cookies are working but are {int(age_hours // 24)}d old — consider refreshing soon."
+            break
+        except Exception as exc:
+            err = str(exc)
+            if _is_unavailable_error(err):
+                # Video is geo-blocked or removed — not a cookie problem; try next URL
+                continue
+            if _is_auth_error(err):
+                status = "invalid"
+                message = "Cookies are expired or rejected by YouTube. Please upload fresh cookies."
+                break
+            # Any other error on this URL — try the next one before giving up
+            message = f"Cookie check failed: {err[:200]}"
+            continue
+    else:
+        # All test URLs were unavailable; assume cookies are fine (can't prove otherwise)
+        if status == "invalid" and message.startswith("Cookie check failed"):
+            status = "valid"
+            message = "Cookie probe inconclusive (test videos unavailable) — cookies assumed valid."
+
+    return jsonify({
+        "status": status,
+        "message": message,
+        "cookie_source": cookie_source,
+        "cookie_age_hours": age_hours,
+    })
+
+
+@app.post("/api/v1/playlist/info")
+@login_required
+@full_mode_only
+def playlist_info():
+    """Extract track list from a playlist URL without downloading any audio."""
+    data = request.get_json(silent=True) or {}
+    url = (data.get("url") or "").strip()
+    if not url or not _is_http_url(url):
+        return jsonify({"ok": False, "error": "Invalid URL."}), 400
+
+    # Resolve cookies via the downloader helper
+    downloader = YtDlpVideoDownloader(quiet=True)
+    cookie_file, _, _ = downloader._resolve_cookie_file()
+
+    ydl_opts: dict = {
+        "extract_flat": True,
+        "quiet": True,
+        "no_warnings": True,
+        "noplaylist": False,
+        "js_runtimes": {"node": {}},
+    }
+    if cookie_file:
+        ydl_opts["cookiefile"] = cookie_file
+
+    try:
+        import yt_dlp as _yt_dlp
+        with _yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+    except Exception as exc:
+        return jsonify({"ok": False, "error": f"Could not read playlist: {str(exc)[:300]}"}), 400
+
+    if not info:
+        return jsonify({"ok": False, "error": "No info returned for that URL."}), 400
+
+    entries = [e for e in (info.get("entries") or []) if e]
+    if not entries:
+        return jsonify({"ok": False, "error": "That URL is not a playlist or the playlist is empty."}), 400
+
+    tracks = []
+    for i, entry in enumerate(entries):
+        video_id = entry.get("id") or ""
+        title = (entry.get("title") or entry.get("id") or f"Track {i + 1}").strip()
+        duration = entry.get("duration")
+        # Flat playlist entries have the video ID in 'url'; prefer webpage_url if present
+        track_url = entry.get("webpage_url") or ""
+        if not track_url and video_id:
+            track_url = f"https://www.youtube.com/watch?v={video_id}"
+        if not track_url:
+            track_url = entry.get("url") or ""
+        if not track_url:
+            continue
+        tracks.append({
+            "index": i + 1,
+            "title": title,
+            "url": track_url,
+            "duration": int(duration) if duration else None,
+        })
+
+    if not tracks:
+        return jsonify({"ok": False, "error": "No valid tracks found in playlist."}), 400
+
+    playlist_title = (info.get("title") or "Playlist").strip()
+    return jsonify({"ok": True, "title": playlist_title, "count": len(tracks), "tracks": tracks})
+
+
 @app.post("/api/v1/jobs")
 @app.post("/start")
 @login_required
@@ -1516,9 +2110,26 @@ def start_split():
             "key_confidence": 0.0,
             "thaat": None,
             "thaat_alt": None,
+            "created_by": _current_user_id(),
         }
         initial_snapshot = dict(jobs[job_id])
     _persist_job_snapshot(job_id, initial_snapshot)
+    # Ensure the project row exists in DB before granting access (FK requirement)
+    creator_id = _current_user_id()
+    app_db.upsert_project(
+        job_id=job_id,
+        name=initial_snapshot.get("project_name", ""),
+        source_url=source_url if has_source_url else "",
+        source_file=original_name,
+        status="queued",
+        stem_count=0,
+        folder=initial_snapshot.get("folder", ""),
+        created_by=creator_id,
+        created_at=initial_snapshot.get("created_at", ""),
+        updated_at=initial_snapshot.get("updated_at", ""),
+    )
+    if AUTH_REQUIRED and creator_id:
+        app_db.grant_access(job_id, creator_id, granted_by=creator_id)
 
     worker_target = _run_demucs_job
     worker_args = (
@@ -1568,7 +2179,18 @@ def job_status(job_id: str):
     job = _get_job(job_id)
     if not job:
         abort(404)
+    if not _has_job_access(job_id):
+        abort(403)
     normalized = _normalize_job(job_id, job)
+
+    # Regular users (not admin/contributor) get their personal overlay merged on top
+    if AUTH_REQUIRED and not _can_edit_content():
+        user_id = _current_user_id()
+        if user_id:
+            overlay = app_db.get_overlay(job_id, user_id)
+            if overlay:
+                normalized = app_db.merge_overlay(normalized, overlay)
+
     return jsonify(
         {
             "job_id": normalized.get("job_id", ""),
@@ -1594,6 +2216,7 @@ def job_status(job_id: str):
             "bpm_analyse_stage": normalized.get("bpm_analyse_stage"),
             "bpm_analyse_progress": normalized.get("bpm_analyse_progress"),
             "lyrics": normalized.get("lyrics", []),
+            "is_admin_view": _is_admin() or not AUTH_REQUIRED,
         }
     )
 
@@ -1612,13 +2235,37 @@ def save_job_metadata(job_id: str):
     mixer_state = _normalize_mixer_state(payload.get("mixer_state", {}), valid_keys)
     lyrics = _normalize_lyrics(payload.get("lyrics", job.get("lyrics", [])))
 
+    if AUTH_REQUIRED and not _can_edit_content():
+        # Regular users: write to user overlay, leave job.json untouched
+        user_id = _current_user_id()
+        if user_id:
+            app_db.save_overlay(job_id, user_id, {
+                "mixer_state": mixer_state,
+                "lyrics": lyrics,
+            })
+        return jsonify({"ok": True, "mixer_state": mixer_state, "lyrics": lyrics,
+                        "saved_as": "overlay"})
+
+    # Admin (or auth not required): write to canonical job.json
     _update_job(
         job_id,
         mixer_state=mixer_state,
         lyrics=lyrics,
         updated_at=datetime.now().isoformat(timespec="seconds"),
     )
-    return jsonify({"ok": True, "mixer_state": mixer_state, "lyrics": lyrics})
+    # Keep the project index in sync
+    app_db.upsert_project(
+        job_id,
+        name=job.get("project_name") or "",
+        source_url=job.get("source_url") or "",
+        source_file=job.get("source_file") or "",
+        status=job.get("status", "completed"),
+        stem_count=len(job.get("stem_files") or {}),
+        folder=job.get("folder") or "",
+        updated_at=datetime.now().isoformat(timespec="seconds"),
+    )
+    return jsonify({"ok": True, "mixer_state": mixer_state, "lyrics": lyrics,
+                    "saved_as": "canonical"})
 
 
 @app.patch("/api/v1/jobs/<job_id>")
@@ -1644,6 +2291,75 @@ def update_job_details(job_id: str):
     return jsonify({"ok": True, "job_id": job_id, "project_name": project_name, "updated_at": updated_at})
 
 
+@app.post("/api/v1/jobs/<job_id>/auto-markers")
+@login_required
+def auto_detect_markers(job_id: str):
+    """Analyse stems and return suggested markers per stem."""
+    if not _is_valid_job_id(job_id):
+        abort(404)
+    if not _has_job_access(job_id):
+        abort(403)
+    job = _get_job(job_id)
+    if not job:
+        abort(404)
+    if job.get("status") != "completed":
+        return jsonify({"ok": False, "error": "Job not complete yet."}), 400
+
+    stem_files = job.get("stem_files") or {}
+    if not stem_files:
+        return jsonify({"ok": False, "error": "No stem files available."}), 400
+
+    # Re-fetch job after potential restore so stem_root is always valid
+    stem_root = _ensure_stems_available(job_id, job)
+    if not stem_root:
+        return jsonify({"ok": False, "error": "Stem files not found. The job may need to be re-processed."}), 400
+
+    # Re-read stem_files in case they were updated by _ensure_stems_available
+    job = _get_job(job_id) or job
+    stem_files = job.get("stem_files") or stem_files
+
+    # Read optional tuning params from request body
+    body = request.get_json(silent=True) or {}
+    params = {
+        "silence_top_db":           float(body.get("silence_top_db", 40)),
+        "min_vocal_duration":       float(body.get("min_vocal_duration", 2.0)),
+        "min_silence_before_start": float(body.get("min_silence_before_start", 0.75)),
+    }
+
+    # Copy only the stems librosa needs (vocals + others) to local /tmp so
+    # analysis doesn't run over a slow NAS/SMB mount.
+    _MARKER_STEMS = {"vocals", "no_vocals", "others", "other"}
+    local_tmp = Path(tempfile.mkdtemp(prefix=f"markers_{job_id}_"))
+    local_stem_files = {}
+    try:
+        for key, filename in stem_files.items():
+            if key not in _MARKER_STEMS:
+                continue
+            src = Path(stem_root) / filename
+            if not src.exists():
+                continue
+            dst = local_tmp / filename
+            shutil.copy2(str(src), str(dst))
+            local_stem_files[key] = filename
+
+        if not local_stem_files:
+            # Fallback: run directly from NAS if copy failed
+            local_tmp_root = stem_root
+            local_stem_files = stem_files
+        else:
+            local_tmp_root = str(local_tmp)
+
+        try:
+            suggested = _marker_detector.detect_markers_for_job(local_tmp_root, local_stem_files, params=params)
+        except Exception as exc:
+            app.logger.exception("auto_detect_markers failed job_id=%s", job_id)
+            return jsonify({"ok": False, "error": str(exc)}), 500
+    finally:
+        shutil.rmtree(str(local_tmp), ignore_errors=True)
+
+    return jsonify({"ok": True, "markers": suggested})
+
+
 @app.patch("/api/v1/jobs/<job_id>/folder")
 @login_required
 def set_job_folder(job_id: str):
@@ -1660,18 +2376,23 @@ def set_job_folder(job_id: str):
 
 @app.delete("/api/v1/jobs/<job_id>")
 @login_required
+@admin_required
 def delete_job(job_id: str):
     if not _is_valid_job_id(job_id):
         abort(404)
 
+    # Require either a job directory on disk OR a DB record — not necessarily both
     job_dir = _job_dir(job_id)
-    if not job_dir.exists():
+    db_record = app_db.get_project(job_id)
+    if not job_dir.exists() and not db_record:
         abort(404)
 
     with jobs_lock:
         jobs.pop(job_id, None)
 
-    shutil.rmtree(job_dir, ignore_errors=False)
+    if job_dir.exists():
+        shutil.rmtree(job_dir, ignore_errors=True)
+    app_db.delete_project(job_id)
     return jsonify({"ok": True, "job_id": job_id})
 
 
@@ -1792,37 +2513,63 @@ def analyse_job(job_id: str):
 @app.get("/api/v1/projects")
 @login_required
 def list_projects():
-    JOB_ROOT.mkdir(parents=True, exist_ok=True)
-    projects = []
-    for job_dir in sorted(JOB_ROOT.iterdir(), key=lambda item: item.stat().st_mtime, reverse=True):
-        if not job_dir.is_dir():
-            continue
-        job_id = job_dir.name
-        if not _is_valid_job_id(job_id):
-            continue
-        job = _get_job(job_id)
-        if not job:
-            continue
-        stem_files = job.get("stem_files", {})
-        project_name = (job.get("project_name") or "").strip()
-        if not project_name:
-            source_name = (job.get("source_file") or "").strip()
-            project_name = Path(source_name).stem if source_name else f"Project {job_id[:8]}"
-        updated_at = job.get("updated_at") or datetime.fromtimestamp(job_dir.stat().st_mtime).isoformat(timespec="seconds")
-        projects.append(
-            {
-                "job_id": job_id,
-                "name": project_name,
-                "updated_at": updated_at,
-                "stem_count": len(stem_files),
-                "folder": (job.get("folder") or "").strip(),
-                "status": job.get("status", "queued"),
-                "progress": job.get("progress", 0),
-            }
-        )
+    query  = request.args.get("q", "").strip()
+    limit  = min(int(request.args.get("limit", 50)), 200)
+    offset = max(int(request.args.get("offset", 0)), 0)
 
-    projects.sort(key=lambda item: item.get("updated_at", ""), reverse=True)
-    return jsonify({"ok": True, "projects": projects[:200]})
+    if _is_admin() or not AUTH_REQUIRED:
+        projects, total = app_db.list_all_projects(query=query, limit=limit, offset=offset)
+    else:
+        user_id = _current_user_id()
+        if not user_id:
+            return jsonify({"ok": True, "projects": [], "total": 0, "limit": limit, "offset": offset})
+        projects, total = app_db.list_projects_for_user(user_id, query=query, limit=limit, offset=offset)
+
+    # Enrich with live progress for in-flight jobs and playlist memberships
+    result = []
+    for p in projects:
+        job_id = p["job_id"]
+        live_progress = None
+        with jobs_lock:
+            if job_id in jobs:
+                live_progress = jobs[job_id].get("progress")
+        playlists = app_db.list_project_playlists(job_id)
+        result.append({
+            "job_id":     job_id,
+            "name":       p["name"],
+            "updated_at": p["updated_at"],
+            "stem_count": p["stem_count"],
+            "folder":     p["folder"],
+            "status":     p["status"],
+            "progress":   live_progress if live_progress is not None else (100 if p["status"] == "completed" else 0),
+            "source_url": p["source_url"],
+            "playlists":  [{"id": pl["id"], "name": pl["name"], "is_shared": bool(pl["is_shared"])} for pl in playlists],
+        })
+
+    return jsonify({"ok": True, "projects": result, "total": total,
+                    "limit": limit, "offset": offset})
+
+
+@app.get("/api/v1/projects/search-url")
+@login_required
+def search_project_by_url():
+    """Check if a YouTube URL has already been split. Returns job_id if found."""
+    url = request.args.get("url", "").strip()
+    if not url:
+        return jsonify({"ok": False, "error": "url parameter required"}), 400
+    project = app_db.find_project_by_url(url)
+    if not project:
+        # Also try matching by video_id extracted from URL
+        if not LITE_MODE:
+            video_id = stem_cache.extract_video_id(url)
+            if video_id:
+                # Search source_url containing the video_id
+                projects, _ = app_db.list_all_projects(query=video_id, limit=1)
+                project = projects[0] if projects else None
+    if project:
+        return jsonify({"ok": True, "found": True, "job_id": project["job_id"],
+                        "name": project["name"]})
+    return jsonify({"ok": True, "found": False})
 
 
 @app.get("/api/v1/jobs/<job_id>/download")
@@ -1831,6 +2578,8 @@ def list_projects():
 def download_zip(job_id: str):
     if not _is_valid_job_id(job_id):
         abort(404)
+    if not _has_job_access(job_id):
+        abort(403)
 
     zip_path = None
     job = _get_job(job_id)
@@ -2002,6 +2751,8 @@ def import_project():
 def download_source(job_id: str):
     if not _is_valid_job_id(job_id):
         abort(404)
+    if not _has_job_access(job_id):
+        abort(403)
 
     source_path = None
     job = _get_job(job_id)
@@ -2026,6 +2777,8 @@ def download_source(job_id: str):
 def stream_stem(job_id: str, stem_key: str):
     if not _is_valid_job_id(job_id) or not STEM_KEY_RE.fullmatch(stem_key):
         abort(404)
+    if not _has_job_access(job_id):
+        abort(403)
     job = _get_job(job_id)
     if not job:
         abort(404)
@@ -2039,12 +2792,13 @@ def stream_stem(job_id: str, stem_key: str):
     if LITE_MODE:
         return send_file(stem_path)  # pitch shift not available without ffmpeg
     try:
-        semitones = int(float(pitch_value))
+        semitones = round(float(pitch_value), 4)
     except ValueError:
         abort(400)
-    if semitones < -12 or semitones > 12:
+    # ±24 to accommodate user pitch (±12) plus tempo compensation (up to ±12 more)
+    if semitones < -24 or semitones > 24:
         abort(400)
-    if semitones == 0:
+    if abs(semitones) < 0.005:
         return send_file(stem_path)
     try:
         variant_path = _ensure_pitch_variant(stem_path, job_id, semitones)
@@ -2059,6 +2813,8 @@ def stream_stem(job_id: str, stem_key: str):
 def download_stem(job_id: str, stem_key: str):
     if not _is_valid_job_id(job_id) or not STEM_KEY_RE.fullmatch(stem_key):
         abort(404)
+    if not _has_job_access(job_id):
+        abort(403)
     job = _get_job(job_id)
     if not job:
         abort(404)
@@ -2243,11 +2999,337 @@ def download_stem_loop(job_id: str, stem_key: str):
     return send_file(output_path, as_attachment=True, download_name=output_name)
 
 
+# ── Admin utilities ───────────────────────────────────────────────────────────
+
+@app.post("/api/v1/admin/resync-db")
+@admin_required
+def admin_resync_db():
+    """Re-run the JOB_ROOT → DB migration on demand (idempotent)."""
+    def _run():
+        _migrate_jobs_to_db()
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({"ok": True, "message": "Resync started in background — check server logs."})
+
+
+# ── User management ───────────────────────────────────────────────────────────
+
+@app.get("/api/v1/users")
+@admin_required
+def list_users():
+    limit  = min(int(request.args.get("limit", 100)), 500)
+    offset = max(int(request.args.get("offset", 0)), 0)
+    # Google auth users only — skip local: entries (already shown from local_users)
+    google_users = [u for u in app_db.list_users(limit=limit, offset=offset)
+                    if not str(u.get("id", "")).startswith("local:")]
+    for u in google_users:
+        u["auth_type"] = "google"
+    # Local users
+    local_users_raw = app_db.list_local_users(limit=500, offset=0)
+    local_users = []
+    for u in local_users_raw:
+        local_users.append({
+            "id": app_db.local_user_to_unified_id(u["id"]),
+            "email": u.get("username", ""),
+            "name": u.get("name", ""),
+            "picture": "",
+            "role": u.get("role", "user"),
+            "auth_type": "local",
+            "is_active": u.get("is_active", 1),
+            "last_seen": u.get("last_seen", ""),
+            "created_at": u.get("created_at", ""),
+        })
+    all_users = google_users + local_users
+    all_users.sort(key=lambda u: u.get("last_seen") or "", reverse=True)
+    return jsonify({"ok": True, "users": all_users})
+
+
+@app.patch("/api/v1/users/<path:user_id>/role")
+@admin_required
+def set_user_role(user_id: str):
+    payload = request.get_json(silent=True) or {}
+    role = str(payload.get("role", "")).strip()
+    if role not in ("admin", "contributor", "user"):
+        return jsonify({"ok": False, "error": "role must be 'admin', 'contributor', or 'user'"}), 400
+    if user_id.startswith("local:"):
+        local_id = int(user_id.split(":", 1)[1])
+        ok = app_db.set_local_user_role(local_id, role)
+    else:
+        ok = app_db.set_user_role(user_id, role)
+    if not ok:
+        return jsonify({"ok": False, "error": "User not found"}), 404
+    return jsonify({"ok": True, "user_id": user_id, "role": role})
+
+
+@app.patch("/api/v1/users/<path:user_id>/active")
+@admin_required
+def set_user_active(user_id: str):
+    payload = request.get_json(silent=True) or {}
+    is_active = bool(payload.get("is_active", True))
+    if not user_id.startswith("local:"):
+        return jsonify({"ok": False, "error": "Active/inactive only supported for local accounts."}), 400
+    local_id = int(user_id.split(":", 1)[1])
+    ok = app_db.set_local_user_active(local_id, is_active)
+    if not ok:
+        return jsonify({"ok": False, "error": "User not found"}), 404
+    return jsonify({"ok": True, "user_id": user_id, "is_active": is_active})
+
+
+@app.delete("/api/v1/users/<path:user_id>")
+@admin_required
+def delete_user_route(user_id: str):
+    ok = app_db.delete_user(user_id)
+    if not ok:
+        return jsonify({"ok": False, "error": "User not found"}), 404
+    return jsonify({"ok": True, "user_id": user_id})
+
+
+@app.get("/api/v1/users/<path:user_id>/projects")
+@admin_required
+def list_user_projects(user_id: str):
+    """List projects directly granted to a specific user (admin view)."""
+    projects = app_db.list_direct_projects_for_user(user_id)
+    return jsonify({"ok": True, "projects": projects})
+
+
+@app.post("/api/v1/users/<path:user_id>/projects")
+@admin_required
+def grant_user_project(user_id: str):
+    payload = request.get_json(silent=True) or {}
+    job_id = str(payload.get("job_id", "")).strip()
+    if not job_id or not _is_valid_job_id(job_id):
+        return jsonify({"ok": False, "error": "valid job_id required"}), 400
+    # Ensure project exists in DB (may be on disk but not yet indexed)
+    if not app_db.get_project(job_id):
+        job = _get_job(job_id)
+        if not job:
+            return jsonify({"ok": False, "error": "Project not found"}), 404
+        name = (job.get("project_name") or "").strip()
+        if not name:
+            sf = (job.get("source_file") or "").strip()
+            name = Path(sf).stem if sf else f"Project {job_id[:8]}"
+        app_db.upsert_project(
+            job_id=job_id,
+            name=name,
+            source_url=(job.get("source_url") or "").strip(),
+            source_file=(job.get("source_file") or "").strip(),
+            status=job.get("status", "completed"),
+            stem_count=len(job.get("stem_files") or {}),
+            folder=(job.get("folder") or "").strip(),
+            created_at=job.get("created_at") or "",
+            updated_at=job.get("updated_at") or "",
+        )
+    # Ensure user exists in unified users table (may not have logged in yet)
+    if not app_db.get_user_by_sub(user_id):
+        return jsonify({"ok": False, "error": "User not found in users table — they must log in at least once before projects can be assigned"}), 400
+    app_db.grant_access(job_id, user_id, granted_by=_current_user_id())
+    return jsonify({"ok": True})
+
+
+@app.delete("/api/v1/users/<path:user_id>/projects/<job_id>")
+@admin_required
+def revoke_user_project(user_id: str, job_id: str):
+    if not _is_valid_job_id(job_id):
+        abort(404)
+    app_db.revoke_access(job_id, user_id)
+    return jsonify({"ok": True})
+
+
+# ── Group management ──────────────────────────────────────────────────────────
+
+@app.get("/api/v1/groups")
+@admin_required
+def list_groups():
+    groups = app_db.list_groups()
+    return jsonify({"ok": True, "groups": groups})
+
+
+@app.post("/api/v1/groups")
+@admin_required
+def create_group():
+    payload = request.get_json(silent=True) or {}
+    name = str(payload.get("name", "")).strip()
+    if not name:
+        return jsonify({"ok": False, "error": "name is required"}), 400
+    description = str(payload.get("description", "")).strip()
+    try:
+        g = app_db.create_group(name, description, created_by=_current_user_id())
+        return jsonify({"ok": True, "group": g})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+
+
+@app.patch("/api/v1/groups/<int:group_id>")
+@admin_required
+def update_group(group_id: int):
+    payload = request.get_json(silent=True) or {}
+    ok = app_db.update_group(
+        group_id,
+        name=payload.get("name"),
+        description=payload.get("description"),
+    )
+    return jsonify({"ok": ok})
+
+
+@app.delete("/api/v1/groups/<int:group_id>")
+@admin_required
+def delete_group(group_id: int):
+    ok = app_db.delete_group(group_id)
+    if not ok:
+        return jsonify({"ok": False, "error": "Group not found"}), 404
+    return jsonify({"ok": True})
+
+
+@app.get("/api/v1/groups/<int:group_id>/members")
+@admin_required
+def list_group_members(group_id: int):
+    members = app_db.list_group_members(group_id)
+    return jsonify({"ok": True, "members": members})
+
+
+@app.post("/api/v1/groups/<int:group_id>/members")
+@admin_required
+def add_group_member(group_id: int):
+    payload = request.get_json(silent=True) or {}
+    user_id = str(payload.get("user_id", "")).strip()
+    if not user_id:
+        return jsonify({"ok": False, "error": "user_id required"}), 400
+    app_db.add_group_member(group_id, user_id)
+    return jsonify({"ok": True})
+
+
+@app.delete("/api/v1/groups/<int:group_id>/members/<path:user_id>")
+@admin_required
+def remove_group_member(group_id: int, user_id: str):
+    app_db.remove_group_member(group_id, user_id)
+    return jsonify({"ok": True})
+
+
+@app.get("/api/v1/groups/<int:group_id>/projects")
+@admin_required
+def list_group_projects(group_id: int):
+    projects = app_db.list_group_projects(group_id)
+    return jsonify({"ok": True, "projects": projects})
+
+
+@app.post("/api/v1/groups/<int:group_id>/projects")
+@admin_required
+def assign_project_to_group(group_id: int):
+    payload = request.get_json(silent=True) or {}
+    job_id = str(payload.get("job_id", "")).strip()
+    if not job_id or not _is_valid_job_id(job_id):
+        return jsonify({"ok": False, "error": "valid job_id required"}), 400
+    app_db.grant_group_project_access(job_id, group_id, granted_by=_current_user_id())
+    return jsonify({"ok": True})
+
+
+@app.delete("/api/v1/groups/<int:group_id>/projects/<job_id>")
+@admin_required
+def unassign_project_from_group(group_id: int, job_id: str):
+    if not _is_valid_job_id(job_id):
+        abort(404)
+    app_db.revoke_group_project_access(job_id, group_id)
+    return jsonify({"ok": True})
+
+
+# ── Project access management ─────────────────────────────────────────────────
+
+@app.get("/api/v1/jobs/<job_id>/access")
+@admin_required
+def list_project_access(job_id: str):
+    if not _is_valid_job_id(job_id):
+        abort(404)
+    access = app_db.list_project_access(job_id)
+    return jsonify({"ok": True, "job_id": job_id, "access": access})
+
+
+@app.post("/api/v1/jobs/<job_id>/access")
+@admin_required
+def grant_project_access(job_id: str):
+    if not _is_valid_job_id(job_id):
+        abort(404)
+    payload = request.get_json(silent=True) or {}
+    user_id = str(payload.get("user_id", "")).strip()
+    if not user_id:
+        return jsonify({"ok": False, "error": "user_id required"}), 400
+    app_db.grant_access(job_id, user_id, granted_by=_current_user_id())
+    return jsonify({"ok": True, "job_id": job_id, "user_id": user_id})
+
+
+@app.post("/api/v1/jobs/<job_id>/access/grant-all")
+@admin_required
+def grant_project_access_to_all(job_id: str):
+    """Grant this project to every registered user."""
+    if not _is_valid_job_id(job_id):
+        abort(404)
+    app_db.grant_access_to_all_users(job_id, granted_by=_current_user_id())
+    return jsonify({"ok": True, "job_id": job_id})
+
+
+@app.delete("/api/v1/jobs/<job_id>/access/<user_id>")
+@admin_required
+def revoke_project_access(job_id: str, user_id: str):
+    if not _is_valid_job_id(job_id):
+        abort(404)
+    app_db.revoke_access(job_id, user_id)
+    return jsonify({"ok": True, "job_id": job_id, "user_id": user_id})
+
+
+@app.get("/api/v1/jobs/<job_id>/overlay")
+@login_required
+def get_user_overlay(job_id: str):
+    """Return the current user's overlay for a project."""
+    if not _is_valid_job_id(job_id):
+        abort(404)
+    user_id = _current_user_id()
+    if not user_id:
+        return jsonify({"ok": True, "overlay": {}})
+    overlay = app_db.get_overlay(job_id, user_id) or {}
+    return jsonify({"ok": True, "overlay": overlay})
+
+
+@app.patch("/api/v1/jobs/<job_id>/overlay")
+@login_required
+def patch_user_overlay(job_id: str):
+    """Merge partial overlay fields into the current user's overlay."""
+    if not _is_valid_job_id(job_id):
+        abort(404)
+    user_id = _current_user_id()
+    if not user_id:
+        return jsonify({"ok": False, "error": "Not authenticated"}), 401
+    payload = request.get_json(silent=True) or {}
+    existing = app_db.get_overlay(job_id, user_id) or {}
+    # Deep-merge mixer_state sub-fields if provided
+    if "mixer_state" in payload:
+        ms = dict(existing.get("mixer_state") or {})
+        ms.update(payload["mixer_state"])
+        existing["mixer_state"] = ms
+    # Merge any other top-level overlay keys (lyrics, etc.)
+    for k, v in payload.items():
+        if k != "mixer_state":
+            existing[k] = v
+    app_db.save_overlay(job_id, user_id, existing)
+    return jsonify({"ok": True})
+
+
+@app.delete("/api/v1/jobs/<job_id>/overlay")
+@login_required
+def reset_user_overlay(job_id: str):
+    """Reset the current user's overlay (revert to canonical admin version)."""
+    if not _is_valid_job_id(job_id):
+        abort(404)
+    user_id = _current_user_id()
+    if user_id:
+        app_db.save_overlay(job_id, user_id, {})
+    return jsonify({"ok": True, "job_id": job_id})
+
+
 # ── Admin ─────────────────────────────────────────────────────────────────────
 
 @app.get("/admin")
 @login_required
 def admin_page():
+    if AUTH_REQUIRED and not _is_admin():
+        return redirect(url_for("index"))
     return render_template("admin.html", current_user=session.get("user"), app_prefix=_APP_PREFIX)
 
 
@@ -2421,6 +3503,8 @@ def admin_clear_cache():
 def admin_clear_failed_jobs():
     deleted = 0
     errors = []
+
+    # Pass 1: scan filesystem — delete directories of jobs marked failed on disk
     if JOB_ROOT.exists():
         for job_dir in list(JOB_ROOT.iterdir()):
             if not job_dir.is_dir():
@@ -2434,9 +3518,26 @@ def admin_clear_failed_jobs():
                     shutil.rmtree(job_dir, ignore_errors=True)
                     with jobs_lock:
                         jobs.pop(job_dir.name, None)
+                    app_db.delete_project(job_dir.name)
                     deleted += 1
             except Exception as exc:
                 errors.append(str(exc))
+
+    # Pass 2: sweep DB for orphaned failed records (directory already gone)
+    try:
+        all_projects, _ = app_db.list_all_projects(limit=10000)
+        for p in all_projects:
+            if p.get("status") == "failed":
+                job_id = p["job_id"]
+                # directory is already gone (or never existed); just purge the DB row
+                if not _job_dir(job_id).exists():
+                    with jobs_lock:
+                        jobs.pop(job_id, None)
+                    app_db.delete_project(job_id)
+                    deleted += 1
+    except Exception as exc:
+        errors.append(f"DB sweep error: {exc}")
+
     return jsonify({"ok": True, "deleted": deleted, "errors": errors})
 
 
@@ -2637,6 +3738,353 @@ def transliterate_text():
     except Exception as exc:
         logging.warning("Transliteration error: %s", exc)
         return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+# ─── Playlists ────────────────────────────────────────────────────────────────
+
+@app.get("/api/v1/playlists")
+@login_required
+def list_playlists():
+    user_id = _current_user_id()
+    if _is_admin() or not AUTH_REQUIRED:
+        playlists = app_db.list_all_playlists()
+    else:
+        playlists = app_db.list_playlists_for_user(user_id)
+    # Normalise is_shared to bool for JS
+    for pl in playlists:
+        pl["is_shared"] = bool(pl.get("is_shared"))
+    return jsonify({"ok": True, "playlists": playlists})
+
+
+@app.post("/api/v1/playlists")
+@login_required
+def create_playlist():
+    payload = request.get_json(silent=True) or {}
+    name = str(payload.get("name", "")).strip()[:100]
+    if not name:
+        return jsonify({"ok": False, "error": "name is required"}), 400
+    is_shared = bool(payload.get("is_shared", False))
+    user_id = _current_user_id()
+    # Only admins can create shared playlists
+    if is_shared and not _is_admin():
+        is_shared = False
+    pl = app_db.create_playlist(name=name, owner_id=user_id, is_shared=is_shared, created_by=user_id)
+    return jsonify({"ok": True, "playlist": pl}), 201
+
+
+@app.get("/api/v1/playlists/<int:playlist_id>")
+@login_required
+def get_playlist(playlist_id: int):
+    pl = app_db.get_playlist(playlist_id)
+    if not pl:
+        abort(404)
+    user_id = _current_user_id()
+    if not _is_admin() and not pl.get("is_shared") and pl.get("owner_id") != user_id:
+        abort(403)
+    projects = app_db.list_playlist_projects(playlist_id)
+    return jsonify({"ok": True, "playlist": pl, "projects": projects})
+
+
+@app.put("/api/v1/playlists/<int:playlist_id>")
+@login_required
+def update_playlist(playlist_id: int):
+    pl = app_db.get_playlist(playlist_id)
+    if not pl:
+        abort(404)
+    user_id = _current_user_id()
+    if not _is_admin() and pl.get("owner_id") != user_id:
+        abort(403)
+    payload = request.get_json(silent=True) or {}
+    name = str(payload.get("name", pl["name"])).strip()[:100]
+    is_shared = payload.get("is_shared", pl.get("is_shared"))
+    # Only admins can make a playlist shared
+    if not _is_admin():
+        is_shared = pl.get("is_shared")
+    app_db.update_playlist(playlist_id, name=name, is_shared=bool(is_shared))
+    return jsonify({"ok": True, "playlist": app_db.get_playlist(playlist_id)})
+
+
+@app.delete("/api/v1/playlists/<int:playlist_id>")
+@login_required
+def delete_playlist(playlist_id: int):
+    pl = app_db.get_playlist(playlist_id)
+    if not pl:
+        abort(404)
+    user_id = _current_user_id()
+    if not _is_admin() and pl.get("owner_id") != user_id:
+        abort(403)
+    app_db.delete_playlist(playlist_id)
+    return jsonify({"ok": True, "playlist_id": playlist_id})
+
+
+@app.post("/api/v1/playlists/<int:playlist_id>/projects/<job_id>")
+@login_required
+def add_project_to_playlist(playlist_id: int, job_id: str):
+    if not _is_valid_job_id(job_id):
+        abort(404)
+    pl = app_db.get_playlist(playlist_id)
+    if not pl:
+        abort(404)
+    user_id = _current_user_id()
+    if not _is_admin() and pl.get("owner_id") != user_id:
+        abort(403)
+    if not app_db.get_project(job_id):
+        abort(404)
+    app_db.add_project_to_playlist(playlist_id, job_id, added_by=user_id)
+    return jsonify({"ok": True, "playlist_id": playlist_id, "job_id": job_id})
+
+
+@app.delete("/api/v1/playlists/<int:playlist_id>/projects/<job_id>")
+@login_required
+def remove_project_from_playlist(playlist_id: int, job_id: str):
+    if not _is_valid_job_id(job_id):
+        abort(404)
+    pl = app_db.get_playlist(playlist_id)
+    if not pl:
+        abort(404)
+    user_id = _current_user_id()
+    if not _is_admin() and pl.get("owner_id") != user_id:
+        abort(403)
+    app_db.remove_project_from_playlist(playlist_id, job_id)
+    return jsonify({"ok": True, "playlist_id": playlist_id, "job_id": job_id})
+
+
+@app.get("/api/v1/jobs/<job_id>/playlists")
+@login_required
+def get_project_playlists(job_id: str):
+    if not _is_valid_job_id(job_id):
+        abort(404)
+    playlists = app_db.list_project_playlists(job_id)
+    return jsonify({"ok": True, "playlists": playlists})
+
+
+# ── Playlist sharing ──────────────────────────────────────────────────────────
+
+@app.get("/api/v1/playlists/<int:playlist_id>/access")
+@login_required
+@admin_required
+def get_playlist_access(playlist_id: int):
+    pl = app_db.get_playlist(playlist_id)
+    if not pl:
+        abort(404)
+    users  = app_db.list_playlist_user_access(playlist_id)
+    groups = app_db.list_playlist_group_access(playlist_id)
+    all_groups = app_db.list_groups()
+    return jsonify({
+        "ok": True,
+        "playlist": pl,
+        "users":  users,
+        "groups": groups,
+        "all_groups": all_groups,
+    })
+
+
+@app.post("/api/v1/playlists/<int:playlist_id>/access/users")
+@login_required
+@admin_required
+def grant_playlist_user_access(playlist_id: int):
+    pl = app_db.get_playlist(playlist_id)
+    if not pl:
+        abort(404)
+    payload = request.get_json(silent=True) or {}
+    user_id = str(payload.get("user_id", "")).strip()
+    if not user_id:
+        return jsonify({"ok": False, "error": "user_id required"}), 400
+    app_db.grant_playlist_access(playlist_id, user_id, granted_by=_current_user_id())
+    return jsonify({"ok": True})
+
+
+@app.delete("/api/v1/playlists/<int:playlist_id>/access/users/<path:user_id>")
+@login_required
+@admin_required
+def revoke_playlist_user_access(playlist_id: int, user_id: str):
+    app_db.revoke_playlist_access(playlist_id, user_id)
+    return jsonify({"ok": True})
+
+
+@app.post("/api/v1/playlists/<int:playlist_id>/access/groups")
+@login_required
+@admin_required
+def grant_playlist_group_access(playlist_id: int):
+    pl = app_db.get_playlist(playlist_id)
+    if not pl:
+        abort(404)
+    payload = request.get_json(silent=True) or {}
+    group_id = payload.get("group_id")
+    if group_id is None:
+        return jsonify({"ok": False, "error": "group_id required"}), 400
+    app_db.grant_playlist_group_access(playlist_id, int(group_id), granted_by=_current_user_id())
+    return jsonify({"ok": True})
+
+
+@app.delete("/api/v1/playlists/<int:playlist_id>/access/groups/<int:group_id>")
+@login_required
+@admin_required
+def revoke_playlist_group_access(playlist_id: int, group_id: int):
+    app_db.revoke_playlist_group_access(playlist_id, group_id)
+    return jsonify({"ok": True})
+
+
+@app.patch("/api/v1/playlists/<int:playlist_id>/sharing")
+@login_required
+@admin_required
+def set_playlist_sharing(playlist_id: int):
+    """Set is_shared (all-users flag) on a playlist."""
+    pl = app_db.get_playlist(playlist_id)
+    if not pl:
+        abort(404)
+    payload = request.get_json(silent=True) or {}
+    is_shared = bool(payload.get("is_shared", pl.get("is_shared")))
+    app_db.update_playlist(playlist_id, is_shared=is_shared)
+    return jsonify({"ok": True, "playlist": app_db.get_playlist(playlist_id)})
+
+
+# ─── User settings ────────────────────────────────────────────────────────────
+
+@app.get("/api/v1/me/settings")
+@login_required
+def get_my_settings():
+    user_id = _current_user_id()
+    effective = app_db.get_effective_settings(user_id)
+    user_overrides = app_db.get_user_settings(user_id)
+    global_settings = {s["key"]: s for s in app_db.list_app_settings()}
+    return jsonify({
+        "ok": True,
+        "effective": effective,
+        "overrides": user_overrides,
+        "global": {k: v["value"] for k, v in global_settings.items()},
+        "can_override": {k: v["can_be_overridden"] for k, v in global_settings.items()},
+    })
+
+
+@app.put("/api/v1/me/settings")
+@login_required
+def update_my_settings():
+    user_id = _current_user_id()
+    payload = request.get_json(silent=True) or {}
+    global_settings = {s["key"]: s for s in app_db.list_app_settings()}
+    saved = {}
+    rejected = {}
+    for key, value in payload.items():
+        gs = global_settings.get(key)
+        if gs is None:
+            rejected[key] = "unknown setting"
+            continue
+        if not gs["can_be_overridden"]:
+            rejected[key] = "not overrideable"
+            continue
+        app_db.set_user_setting(user_id, key, value)
+        saved[key] = value
+    effective = app_db.get_effective_settings(user_id)
+    return jsonify({"ok": True, "saved": saved, "rejected": rejected, "effective": effective})
+
+
+@app.delete("/api/v1/me/settings/<key>")
+@login_required
+def reset_my_setting(key: str):
+    user_id = _current_user_id()
+    app_db.delete_user_setting(user_id, key)
+    effective = app_db.get_effective_settings(user_id)
+    return jsonify({"ok": True, "key": key, "effective": effective})
+
+
+# ─── User favorites ──────────────────────────────────────────────────────────
+
+@app.get("/api/v1/me/favorites")
+@login_required
+def get_my_favorites():
+    user_id = _current_user_id()
+    return jsonify({"ok": True, "favorites": app_db.list_favorites(user_id)})
+
+
+@app.post("/api/v1/me/favorites/<job_id>")
+@login_required
+def add_favorite(job_id: str):
+    user_id = _current_user_id()
+    if not app_db.get_project(job_id):
+        return jsonify({"ok": False, "error": "Project not found"}), 404
+    app_db.add_favorite(user_id, job_id)
+    return jsonify({"ok": True})
+
+
+@app.delete("/api/v1/me/favorites/<job_id>")
+@login_required
+def remove_favorite(job_id: str):
+    user_id = _current_user_id()
+    app_db.remove_favorite(user_id, job_id)
+    return jsonify({"ok": True})
+
+
+# ─── Admin: global settings ───────────────────────────────────────────────────
+
+@app.get("/api/v1/admin/settings")
+@login_required
+@admin_required
+def admin_get_settings():
+    settings = app_db.list_app_settings()
+    return jsonify({"ok": True, "settings": settings})
+
+
+@app.put("/api/v1/admin/settings")
+@login_required
+@admin_required
+def admin_update_settings():
+    payload = request.get_json(silent=True) or {}
+    user_id = _current_user_id()
+    updated = []
+    for key, entry in payload.items():
+        if not isinstance(entry, dict):
+            # Allow plain value shorthand: {"key": value}
+            entry = {"value": entry}
+        app_db.set_app_setting(
+            key=key,
+            value=entry.get("value"),
+            can_be_overridden=entry.get("can_be_overridden"),
+            updated_by=user_id,
+        )
+        updated.append(key)
+    return jsonify({"ok": True, "updated": updated, "settings": app_db.list_app_settings()})
+
+
+# ─── Admin: playlists viewer + export/import ──────────────────────────────────
+
+@app.get("/api/v1/admin/playlists")
+@login_required
+@admin_required
+def admin_list_playlists():
+    playlists = app_db.list_all_playlists()
+    return jsonify({"ok": True, "playlists": playlists})
+
+
+@app.get("/api/v1/admin/playlists/export")
+@login_required
+@admin_required
+def admin_export_playlists():
+    data = app_db.export_playlists()
+    return jsonify({"ok": True, "export": data})
+
+
+@app.post("/api/v1/admin/playlists/import")
+@login_required
+@admin_required
+def admin_import_playlists():
+    payload = request.get_json(silent=True) or {}
+    export_data = payload.get("export") or payload  # accept wrapped or raw
+    if not isinstance(export_data, dict) or "playlists" not in export_data:
+        return jsonify({"ok": False, "error": "Invalid import format. Expected {playlists: [...]}"}), 400
+    user_id = _current_user_id()
+    stats = app_db.import_playlists(export_data, imported_by=user_id)
+    return jsonify({"ok": True, **stats})
+
+
+# ─── Admin: project access overview ──────────────────────────────────────────
+
+@app.get("/api/v1/admin/projects/access-summary")
+@login_required
+@admin_required
+def admin_project_access_summary():
+    data = app_db.get_all_projects_access_summary()
+    return jsonify({"ok": True, "projects": data})
 
 
 if __name__ == "__main__":

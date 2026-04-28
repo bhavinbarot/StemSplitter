@@ -341,6 +341,15 @@
     .badge-cancelled { background: #f1f5f9;          color: #64748b;      }
     .badge-queued    { background: var(--orange-bg); color: var(--orange);}
     .badge-unknown   { background: #f1f5f9;          color: #64748b;      }
+    .ap-row:hover { background: #f8fafc; }
+    .access-badge {
+      display: inline-flex; align-items: center; gap: 3px;
+      padding: 2px 7px; border-radius: 99px; font-size: 11px; font-weight: 500;
+      margin: 2px 2px 2px 0; white-space: nowrap;
+    }
+    .access-badge.global { background: #eff6ff; color: #1d4ed8; }
+    .access-badge.group  { background: #f0fdf4; color: #15803d; }
+    .access-badge.user   { background: #faf5ff; color: #7e22ce; }
     .job-name { font-size: 13px; font-weight: 600; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .job-time { font-size: 11px; color: var(--subtle); flex-shrink: 0; }
     .log-viewer {
@@ -379,18 +388,553 @@
       transition: background 0.15s, color 0.15s;
     }
     .log-refresh-btn:hover { background: rgba(255,255,255,0.08); color: #e2e8f0; }
+
+    /* ── Tab bar ─────────────────────────────────────────────── */
+    .tab-bar {
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      padding: 0 28px;
+      display: flex;
+      gap: 2px;
+      position: sticky;
+      top: 56px;
+      z-index: 40;
+    }
+    .tab-btn {
+      padding: 12px 18px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--subtle);
+      background: none;
+      border: none;
+      border-bottom: 2.5px solid transparent;
+      cursor: pointer;
+      transition: color 0.15s, border-color 0.15s;
+      white-space: nowrap;
+    }
+    .tab-btn:hover { color: var(--text); }
+    .tab-btn.active { color: var(--blue); border-bottom-color: var(--blue); }
+    .tab-pane { display: none; }
+    .tab-pane.active { display: contents; }
+
+    /* ── User management (redesigned) ──────────────────────────── */
+    .user-search-wrap {
+      position: relative;
+      margin-bottom: 16px;
+    }
+    .user-search-wrap::before {
+      content: "⌕";
+      position: absolute;
+      left: 13px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 17px;
+      color: var(--subtle);
+      pointer-events: none;
+      line-height: 1;
+    }
+    #user-search {
+      width: 100%;
+      padding: 9px 14px 9px 36px;
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      font-size: 13px;
+      color: var(--text);
+      background: var(--bg);
+      transition: border-color 0.15s;
+    }
+    #user-search:focus { outline: none; border-color: var(--blue); background: white; }
+    .user-list { display: grid; gap: 0; }
+    .user-row {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 14px 20px;
+      border-bottom: 1px solid #f1f4fb;
+      transition: background 0.1s;
+      position: relative;
+    }
+    .user-row:last-child { border-bottom: none; }
+    .user-row:hover { background: #f8faff; }
+    .user-row.inactive { opacity: 0.5; }
+    .user-avatar {
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      object-fit: cover;
+      background: var(--blue-bg);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--blue);
+      flex-shrink: 0;
+    }
+    .user-info { flex: 1; min-width: 0; }
+    .user-name { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .user-email { font-size: 12px; color: var(--subtle); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .user-badges { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+    .auth-badge {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 999px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .auth-badge.google { background: #fef3c7; color: #92400e; }
+    .auth-badge.local  { background: #e0e7ff; color: #3730a3; }
+    .role-badge {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 3px 9px;
+      border-radius: 999px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .role-badge.admin       { background: var(--blue-bg); color: var(--blue); }
+    .role-badge.contributor { background: var(--green-bg); color: var(--green); }
+    .role-badge.user        { background: #f1f5f9; color: #475569; }
+    .user-seen {
+      font-size: 11px;
+      color: var(--subtle);
+      flex-shrink: 0;
+      text-align: right;
+      min-width: 80px;
+    }
+    @media (max-width: 580px) { .user-seen { display: none; } }
+    @media (max-width: 480px) { .user-badges { display: none; } }
+    .user-menu-wrap { position: relative; }
+    .user-menu-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      border: 1.5px solid var(--border);
+      background: white;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--subtle);
+      flex-shrink: 0;
+      letter-spacing: 0.06em;
+      line-height: 1;
+      transition: background 0.1s, border-color 0.1s, color 0.1s;
+    }
+    .user-menu-btn:hover { background: var(--bg); border-color: #a0b4e0; color: var(--text); }
+    .user-menu {
+      position: absolute;
+      right: 0;
+      top: calc(100% + 4px);
+      background: white;
+      border: 1.5px solid var(--border);
+      border-radius: 10px;
+      box-shadow: 0 8px 24px rgba(15,23,42,0.12);
+      z-index: 100;
+      overflow: hidden;
+      min-width: 210px;
+      display: none;
+    }
+    .user-menu.open { display: block; }
+    .user-menu-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 16px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      border: none;
+      background: none;
+      width: 100%;
+      text-align: left;
+      color: var(--text);
+      transition: background 0.1s;
+    }
+    .user-menu-item:hover { background: var(--bg); }
+    .user-menu-item.promote { color: var(--blue); }
+    .user-menu-item.promote:hover { background: var(--blue-bg); }
+    .user-menu-item.success { color: var(--green); }
+    .user-menu-item.success:hover { background: var(--green-bg); }
+    .user-menu-item.danger  { color: var(--red); }
+    .user-menu-item.danger:hover  { background: var(--red-bg); }
+    .user-menu-divider { height: 1px; background: var(--border); margin: 4px 0; }
+    .user-inactive { opacity: 0.5; }
+    /* ── btn-xs (used in groups delete button) ──────────────── */
+    .btn-xs {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1.5px solid var(--border);
+      background: white;
+      color: var(--text);
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .btn-xs:hover { background: var(--bg); }
+    .btn-xs.deactivate { border-color: var(--red); color: var(--red); }
+    .btn-xs.deactivate:hover { background: var(--red-bg); }
+    .btn-sm-primary {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 7px 16px;
+      border-radius: 8px;
+      font-size: 12px; font-weight: 600;
+      cursor: pointer;
+      border: none;
+      background: var(--blue);
+      color: white;
+      transition: background 0.15s, box-shadow 0.15s;
+    }
+    .btn-sm-primary:hover { background: #1d4ed8; box-shadow: 0 2px 8px rgba(37,99,235,0.25); }
+    .btn-sm-success {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 7px 16px;
+      border-radius: 8px;
+      font-size: 12px; font-weight: 600;
+      cursor: pointer;
+      border: none;
+      background: var(--green);
+      color: white;
+      transition: background 0.15s, box-shadow 0.15s;
+    }
+    .btn-sm-success:hover { background: #15803d; box-shadow: 0 2px 8px rgba(22,163,74,0.25); }
+
+    /* ── Group management ────────────────────────────────────── */
+    .group-create-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+    .group-create-row input {
+      flex: 1;
+      min-width: 140px;
+      padding: 9px 14px;
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      font-size: 13px;
+      background: var(--bg);
+      transition: border-color 0.15s;
+    }
+    .group-create-row input:focus { outline: none; border-color: var(--blue); background: white; }
+    /* ── Groups list ─────────────────────────────────────────── */
+    .group-list { display: grid; gap: 12px; }
+    .group-item {
+      background: white;
+      border: 1.5px solid var(--border);
+      border-radius: 12px;
+      overflow: visible;
+      box-shadow: 0 1px 4px rgba(15,23,42,0.05);
+      transition: box-shadow 0.15s, border-color 0.15s;
+    }
+    .group-item.open { border-color: #bfcfff; box-shadow: 0 4px 16px rgba(37,99,235,0.08); }
+    .group-item-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 18px;
+      background: transparent;
+      cursor: pointer;
+      user-select: none;
+      border-radius: 12px;
+    }
+    .group-item.open .group-item-header { border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom: 1.5px solid #eef1fb; }
+    .group-item-header:hover { background: #f8faff; }
+    .group-chevron {
+      width: 22px; height: 22px;
+      display: flex; align-items: center; justify-content: center;
+      background: #f1f5f9;
+      border-radius: 50%;
+      font-size: 9px;
+      color: var(--subtle);
+      transition: transform 0.2s, background 0.15s;
+      flex-shrink: 0;
+    }
+    .group-item.open .group-chevron { transform: rotate(90deg); background: var(--blue-bg); color: var(--blue); }
+    .group-name-label { font-size: 14px; font-weight: 700; flex: 1; min-width: 0; color: var(--text); }
+    .group-desc-label { font-size: 12px; color: var(--subtle); margin-left: 2px; }
+    .group-meta { display: flex; gap: 8px; flex-shrink: 0; align-items: center; }
+    .group-count-badge {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 10px;
+      border-radius: 999px;
+      background: #f1f5f9;
+      color: #475569;
+      letter-spacing: 0.01em;
+    }
+    .group-body { display: none; padding: 20px 20px 18px; background: white; border-bottom-left-radius: 10px; border-bottom-right-radius: 10px; }
+    .group-item.open .group-body { display: block; }
+
+    /* Two-column layout inside group body */
+    .group-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    @media (max-width: 620px) { .group-columns { grid-template-columns: 1fr; gap: 16px; } }
+
+    .group-col-panel {
+      background: #f8faff;
+      border: 1px solid #e8edf7;
+      border-radius: 10px;
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .group-col-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 2px;
+    }
+    .group-section-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--subtle);
+      margin: 0;
+    }
+    .group-chip-area {
+      min-height: 34px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-content: flex-start;
+    }
+    .member-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 8px 4px 10px;
+      background: white;
+      border: 1.5px solid #bfcfff;
+      color: var(--blue);
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      line-height: 1;
+    }
+    .member-chip .chip-remove {
+      cursor: pointer;
+      font-size: 15px;
+      line-height: 1;
+      opacity: 0.45;
+      transition: opacity 0.1s;
+    }
+    .member-chip .chip-remove:hover { opacity: 1; color: var(--red); }
+    .project-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 8px 4px 10px;
+      background: white;
+      border: 1.5px solid #86efac;
+      color: var(--green);
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      line-height: 1;
+    }
+    .project-chip .chip-remove {
+      cursor: pointer;
+      font-size: 15px;
+      line-height: 1;
+      opacity: 0.45;
+      transition: opacity 0.1s;
+    }
+    .project-chip .chip-remove:hover { opacity: 1; color: var(--red); }
+
+    /* Add row: full-width ms-wrap, button below */
+    .add-row {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-top: 2px;
+    }
+    .add-row-actions {
+      display: flex;
+      justify-content: flex-end;
+    }
+
+    .empty-hint { font-size: 12px; color: var(--subtle); font-style: italic; }
+
+    /* ── Multi-select dropdown ───────────────────────────────── */
+    .ms-wrap { position: relative; width: 100%; }
+    .ms-trigger {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      font-size: 13px;
+      background: white;
+      cursor: pointer;
+      text-align: left;
+      gap: 8px;
+      transition: border-color 0.15s;
+    }
+    .ms-trigger:hover { border-color: #a0b4e0; }
+    .ms-trigger:focus { outline: none; border-color: var(--blue); }
+    .ms-trigger.open { border-color: var(--blue); border-bottom-left-radius: 0; border-bottom-right-radius: 0; box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+    .ms-trigger-label { flex: 1; color: #94a3b8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+    .ms-trigger-label.has-selection { color: var(--text); font-weight: 600; }
+    .ms-chevron { font-size: 11px; color: #94a3b8; flex-shrink: 0; transition: transform 0.15s; }
+    .ms-trigger.open .ms-chevron { transform: rotate(180deg); color: var(--blue); }
+    .ms-badge {
+      background: var(--blue);
+      color: white;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: 999px;
+      flex-shrink: 0;
+    }
+    .ms-dropdown {
+      position: absolute;
+      top: 100%;
+      left: 0; right: 0;
+      background: white;
+      border: 1.5px solid var(--blue);
+      border-top: none;
+      border-bottom-left-radius: 8px;
+      border-bottom-right-radius: 8px;
+      z-index: 200;
+      box-shadow: 0 8px 24px rgba(37,99,235,0.12);
+      max-height: 240px;
+      display: flex;
+      flex-direction: column;
+    }
+    .ms-dropdown.hidden { display: none; }
+    .ms-search {
+      padding: 8px 12px;
+      border: none;
+      border-bottom: 1px solid #eef1fb;
+      font-size: 12px;
+      outline: none;
+      flex-shrink: 0;
+      background: #fafbff;
+    }
+    .ms-search::placeholder { color: #94a3b8; }
+    .ms-options { overflow-y: auto; flex: 1; }
+    .ms-option {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      font-size: 12px;
+      cursor: pointer;
+      user-select: none;
+      transition: background 0.1s;
+    }
+    .ms-option:hover { background: #f0f5ff; }
+    .ms-option input[type="checkbox"] {
+      flex-shrink: 0;
+      accent-color: var(--blue);
+      width: 15px; height: 15px;
+      cursor: pointer;
+    }
+    .ms-empty { padding: 14px 12px; font-size: 12px; color: var(--subtle); font-style: italic; text-align: center; }
+    .ms-select-all {
+      padding: 6px 12px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--blue);
+      border-bottom: 1px solid #eef1fb;
+      background: #f5f8ff;
+      display: flex;
+      gap: 14px;
+      flex-shrink: 0;
+    }
+    .ms-select-all span { cursor: pointer; opacity: 0.8; }
+    .ms-select-all span:hover { opacity: 1; text-decoration: underline; }
+
+    /* ── Project access modal ────────────────────────────────── */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(15,23,42,0.45);
+      z-index: 200;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .modal-overlay.hidden { display: none; }
+    .modal-box {
+      background: white;
+      border-radius: var(--radius);
+      box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+      width: calc(100vw - 48px);
+      max-width: 1400px;
+      height: calc(100vh - 48px);
+      max-height: calc(100vh - 48px);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .modal-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 18px 20px 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    .modal-title { font-size: 15px; font-weight: 700; flex: 1; }
+    .modal-close {
+      background: none;
+      border: none;
+      font-size: 20px;
+      cursor: pointer;
+      color: var(--subtle);
+      line-height: 1;
+      padding: 2px 6px;
+    }
+    .modal-close:hover { color: var(--text); }
+    .modal-body { padding: 18px 20px; overflow-y: auto; flex: 1; }
+    .modal-section-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--subtle);
+      margin: 0 0 8px;
+    }
+    .modal-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; min-height: 28px; }
   </style>
 </head>
 <body>
 
 <nav class="topbar">
-  <a class="topbar-logo" href="/">Stem Splitter</a>
+  <a class="topbar-logo" href="{{ url_for('index') }}">Stem Splitter</a>
   <span class="topbar-sep">›</span>
   <span class="topbar-title">Admin</span>
-  <a class="topbar-back" href="/">← Back to App</a>
+  <a class="topbar-back" href="{{ url_for('index') }}">← Back to App</a>
 </nav>
 
+<div class="tab-bar">
+  <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
+  <button class="tab-btn" data-tab="settings">Settings</button>
+  <button class="tab-btn" data-tab="global-settings">Global Settings</button>
+  <button class="tab-btn" data-tab="playlists">Playlists</button>
+  <button class="tab-btn" data-tab="users">Users &amp; Groups</button>
+  <button class="tab-btn" data-tab="project-access">Project Access</button>
+  <button class="tab-btn" data-tab="jobs">Jobs</button>
+</div>
+
 <main class="page">
+
+  <!-- ════ TAB: Dashboard ════ -->
+  <div class="tab-pane active" id="tab-dashboard">
 
   <!-- ── Dashboard ───────────────────────────────────────────── -->
   <div class="card">
@@ -476,6 +1020,11 @@
       </div>
     </div>
   </div>
+
+  </div><!-- /tab-dashboard -->
+
+  <!-- ════ TAB: Settings ════ -->
+  <div class="tab-pane" id="tab-settings">
 
   <!-- ── Feature Toggles ─────────────────────────────────────── -->
   <div class="card">
@@ -578,6 +1127,200 @@
     </div>
   </div>
 
+  </div><!-- /tab-settings -->
+
+  <!-- ════ TAB: Global Settings ════ -->
+  <div class="tab-pane" id="tab-global-settings">
+
+  <div class="card">
+    <div class="card-header">
+      <div class="card-icon blue">🌐</div>
+      <div>
+        <h2 class="card-title">Global Settings</h2>
+        <p class="card-subtitle">App-wide defaults. Users can override settings where "Allow override" is on.</p>
+      </div>
+    </div>
+    <div class="card-body">
+      <div id="global-settings-list" style="display:flex;flex-direction:column;gap:0;">
+        <p style="color:var(--subtle);font-size:13px;">Loading…</p>
+      </div>
+      <div style="margin-top:18px;display:flex;gap:10px;align-items:center;">
+        <button class="btn btn-primary" onclick="saveGlobalSettings()">Save Changes</button>
+        <span id="global-settings-status" style="font-size:12px;color:var(--subtle);"></span>
+      </div>
+    </div>
+  </div>
+
+  </div><!-- /tab-global-settings -->
+
+  <!-- ════ TAB: Playlists ════ -->
+  <div class="tab-pane" id="tab-playlists">
+
+  <div class="card">
+    <div class="card-header">
+      <div class="card-icon green">🎵</div>
+      <div>
+        <h2 class="card-title">Playlists</h2>
+        <p class="card-subtitle">All playlists across all users. 🎵 = shared (everyone), 🎧 = personal.</p>
+      </div>
+    </div>
+    <div class="card-body">
+      <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center;">
+        <button class="btn btn-outline" onclick="exportPlaylists()">⬇ Export JSON</button>
+        <label class="btn btn-outline" style="cursor:pointer;">
+          ⬆ Import JSON
+          <input type="file" id="playlist-import-file" accept=".json" style="display:none" onchange="importPlaylists(this)">
+        </label>
+      </div>
+      <div id="playlist-admin-list">
+        <p style="color:var(--subtle);font-size:13px;">Loading…</p>
+      </div>
+    </div>
+  </div>
+
+  </div><!-- /tab-playlists -->
+
+  <!-- Playlist share modal -->
+  <div id="playlist-share-modal" style="display:none;position:fixed;inset:0;z-index:3000;background:rgba(15,23,42,0.42);align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:16px;box-shadow:0 12px 40px rgba(15,23,42,0.18);padding:24px 28px;min-width:360px;max-width:520px;width:92%;max-height:85vh;overflow-y:auto;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+        <h3 id="pls-modal-title" style="margin:0;font-size:15px;font-weight:700;color:#0f172a;">Sharing: …</h3>
+        <button onclick="closePlsModal()" style="background:none;border:none;cursor:pointer;font-size:20px;color:#94a3b8;padding:2px 6px;">✕</button>
+      </div>
+      <div id="pls-modal-body"></div>
+    </div>
+  </div>
+
+  <!-- ════ TAB: Users & Groups ════ -->
+  <div class="tab-pane" id="tab-users">
+
+  <!-- ── Users ─────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-icon blue">👥</div>
+      <div>
+        <h2 class="card-title">Users</h2>
+        <p class="card-subtitle">Manage roles and account status</p>
+      </div>
+      <button class="btn btn-outline" style="margin-left:auto" onclick="loadUsers()">↻ Refresh</button>
+    </div>
+    <div class="card-body">
+      <div class="user-search-wrap">
+        <input id="user-search" type="search" placeholder="Search users by name or email…" oninput="filterUsers(this.value)">
+      </div>
+      <div id="user-table-wrap">
+        <p style="color:var(--subtle);font-size:13px">Loading…</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Groups ────────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-icon green">🏷</div>
+      <div>
+        <h2 class="card-title">Groups</h2>
+        <p class="card-subtitle">Create groups and assign projects to them</p>
+      </div>
+      <button class="btn btn-outline" style="margin-left:auto" onclick="loadGroups()">↻ Refresh</button>
+    </div>
+    <div class="card-body">
+      <!-- Create group -->
+      <div class="group-create-row">
+        <input id="new-group-name" type="text" placeholder="Group name…" maxlength="80"
+               onkeydown="if(event.key==='Enter') createGroup()">
+        <input id="new-group-desc" type="text" placeholder="Description (optional)" maxlength="200"
+               onkeydown="if(event.key==='Enter') createGroup()">
+        <button class="btn btn-primary" onclick="createGroup()">+ Create Group</button>
+      </div>
+      <div id="group-list" class="group-list">
+        <p style="color:var(--subtle);font-size:13px">Loading…</p>
+      </div>
+    </div>
+  </div>
+
+  </div><!-- /tab-users -->
+
+  <!-- ════ TAB: Project Access ════ -->
+  <div class="tab-pane" id="tab-project-access">
+  <div style="margin-left:calc(-50vw + 450px);margin-right:calc(-50vw + 450px);width:calc(100vw - 48px);max-width:none;">
+
+    <!-- ── Header bar ── -->
+    <div style="display:flex;align-items:center;gap:14px;padding:20px 28px 16px;border-bottom:1px solid var(--border);background:#fff;border-radius:var(--radius) var(--radius) 0 0;border:1px solid var(--border);">
+      <div style="display:flex;align-items:center;gap:10px;flex:0 0 auto;">
+        <div class="card-icon blue" style="font-size:17px;">🔐</div>
+        <div>
+          <div style="font-size:15px;font-weight:700;color:#0f172a;">Project Access Overview</div>
+          <div style="font-size:11px;color:var(--subtle);margin-top:1px;" id="pa-summary-line">—</div>
+        </div>
+      </div>
+      <div style="flex:1;"></div>
+      <button class="btn btn-outline" onclick="loadProjectAccess()" style="white-space:nowrap;">↻ Refresh</button>
+    </div>
+
+    <!-- ── Filter bar ── -->
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;padding:16px 28px;background:#f8fafc;border-left:1px solid var(--border);border-right:1px solid var(--border);">
+      <div>
+        <label style="display:block;font-size:10px;font-weight:700;text-transform:uppercase;color:#64748b;letter-spacing:.06em;margin-bottom:5px;">Project Name</label>
+        <div style="position:relative;">
+          <span style="position:absolute;left:9px;top:50%;transform:translateY(-50%);color:#94a3b8;font-size:13px;pointer-events:none;">⊘</span>
+          <input id="pa-f-project" type="text" placeholder="Filter by project…" oninput="_paApplyFilters()"
+            style="width:100%;padding:8px 10px 8px 28px;border:1px solid var(--border);border-radius:8px;font-size:13px;box-sizing:border-box;background:#fff;">
+        </div>
+      </div>
+      <div>
+        <label style="display:block;font-size:10px;font-weight:700;text-transform:uppercase;color:#1d4ed8;letter-spacing:.06em;margin-bottom:5px;">Playlist Name</label>
+        <div style="position:relative;">
+          <span style="position:absolute;left:9px;top:50%;transform:translateY(-50%);color:#93c5fd;font-size:13px;pointer-events:none;">⊘</span>
+          <input id="pa-f-playlist" type="text" placeholder="Filter by playlist…" oninput="_paApplyFilters()"
+            style="width:100%;padding:8px 10px 8px 28px;border:1px solid #bfdbfe;border-radius:8px;font-size:13px;box-sizing:border-box;background:#eff6ff;">
+        </div>
+      </div>
+      <div>
+        <label style="display:block;font-size:10px;font-weight:700;text-transform:uppercase;color:#15803d;letter-spacing:.06em;margin-bottom:5px;">Group Name</label>
+        <div style="position:relative;">
+          <span style="position:absolute;left:9px;top:50%;transform:translateY(-50%);color:#86efac;font-size:13px;pointer-events:none;">⊘</span>
+          <input id="pa-f-group" type="text" placeholder="Filter by group…" oninput="_paApplyFilters()"
+            style="width:100%;padding:8px 10px 8px 28px;border:1px solid #bbf7d0;border-radius:8px;font-size:13px;box-sizing:border-box;background:#f0fdf4;">
+        </div>
+      </div>
+      <div>
+        <label style="display:block;font-size:10px;font-weight:700;text-transform:uppercase;color:#7e22ce;letter-spacing:.06em;margin-bottom:5px;">User Name / Email</label>
+        <div style="position:relative;">
+          <span style="position:absolute;left:9px;top:50%;transform:translateY(-50%);color:#d8b4fe;font-size:13px;pointer-events:none;">⊘</span>
+          <input id="pa-f-user" type="text" placeholder="Filter by user…" oninput="_paApplyFilters()"
+            style="width:100%;padding:8px 10px 8px 28px;border:1px solid #e9d5ff;border-radius:8px;font-size:13px;box-sizing:border-box;background:#faf5ff;">
+        </div>
+      </div>
+    </div>
+    <!-- Active filters + clear -->
+    <div id="pa-active-filters" style="display:none;padding:8px 28px;background:#f8fafc;border-left:1px solid var(--border);border-right:1px solid var(--border);border-bottom:1px solid var(--border);font-size:12px;color:#64748b;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+    </div>
+
+    <!-- ── Table ── -->
+    <div style="overflow-x:auto;border:1px solid var(--border);border-top:none;border-radius:0 0 var(--radius) var(--radius);background:#fff;">
+      <table class="data-table" style="width:100%;border-collapse:collapse;">
+        <thead>
+          <tr style="background:#f8fafc;">
+            <th id="pa-th-project"  onclick="_paSort('project')"  style="padding:11px 16px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#64748b;letter-spacing:.05em;border-bottom:2px solid var(--border);width:26%;cursor:pointer;user-select:none;">Project <span class="pa-sort-arrow">⇅</span></th>
+            <th id="pa-th-playlist" onclick="_paSort('playlist')" style="padding:11px 16px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#1d4ed8;letter-spacing:.05em;border-bottom:2px solid var(--border);width:24%;cursor:pointer;user-select:none;">🌐 All-User Playlists <span class="pa-sort-arrow">⇅</span></th>
+            <th id="pa-th-group"    onclick="_paSort('group')"    style="padding:11px 16px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#15803d;letter-spacing:.05em;border-bottom:2px solid var(--border);width:24%;cursor:pointer;user-select:none;">👥 Groups <span class="pa-sort-arrow">⇅</span></th>
+            <th id="pa-th-user"     onclick="_paSort('user')"     style="padding:11px 16px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#7e22ce;letter-spacing:.05em;border-bottom:2px solid var(--border);width:26%;cursor:pointer;user-select:none;">👤 Individual Users <span class="pa-sort-arrow">⇅</span></th>
+          </tr>
+        </thead>
+        <tbody id="pa-tbody">
+          <tr><td colspan="4" style="text-align:center;color:var(--subtle);padding:48px;">Loading…</td></tr>
+        </tbody>
+      </table>
+      <div id="pa-footer-bar" style="display:none;padding:10px 16px;border-top:1px solid var(--border);font-size:12px;color:var(--subtle);background:#f8fafc;border-radius:0 0 var(--radius) var(--radius);"></div>
+    </div>
+
+  </div>
+  </div>
+
+  <!-- ════ TAB: Jobs ════ -->
+  <div class="tab-pane" id="tab-jobs">
+
   <!-- ── Maintenance ─────────────────────────────────────────── -->
   <div class="card">
     <div class="card-header">
@@ -602,6 +1345,13 @@
         </div>
         <button class="btn btn-danger" onclick="clearFailed()">Delete Failed</button>
       </div>
+      <div class="action-card">
+        <div class="action-info">
+          <div class="action-label">Resync Project Database</div>
+          <div class="action-desc">Scan the job storage folder and add any projects that exist on disk but are missing from the database. Run this if a project appears in the admin job list but not on the main project listing page.</div>
+        </div>
+        <button class="btn btn-outline" onclick="resyncDb()">Resync DB</button>
+      </div>
     </div>
   </div>
 
@@ -620,7 +1370,67 @@
     </div>
   </div>
 
+  </div><!-- /tab-jobs -->
+
 </main>
+
+<!-- ── User Project Access Modal ─────────────────────────── -->
+<div id="user-projects-modal" class="modal-overlay hidden">
+  <div class="modal-box" style="display:flex;flex-direction:column;">
+
+    <!-- Header -->
+    <div class="modal-header">
+      <div class="card-icon green" style="width:32px;height:32px;font-size:15px;border-radius:9px;flex-shrink:0;">📁</div>
+      <div style="min-width:0;flex:1;">
+        <div class="modal-title" id="modal-user-title">Projects</div>
+        <div style="font-size:11px;color:var(--subtle);margin-top:1px;" id="modal-user-subtitle"></div>
+      </div>
+      <button class="modal-close" onclick="closeUserProjectsModal()">×</button>
+    </div>
+
+    <!-- ── Panel A: Assigned projects list (default) ── -->
+    <div id="modal-assigned-panel" style="display:flex;flex-direction:column;flex:1;overflow:hidden;">
+      <!-- Toolbar -->
+      <div style="display:flex;align-items:center;gap:10px;padding:14px 20px;border-bottom:1px solid var(--border);">
+        <button class="btn btn-primary" style="gap:6px;display:flex;align-items:center;" onclick="openAddProjectsPanel()">
+          <span style="font-size:16px;line-height:1;">＋</span> Add Projects
+        </button>
+        <input type="text" id="modal-assign-search" placeholder="🔍 Filter assigned projects…"
+          oninput="_filterAssignedList(this.value)"
+          style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;">
+      </div>
+      <!-- Assigned list -->
+      <div style="flex:1;overflow-y:auto;padding:0 20px 16px;">
+        <div id="modal-assigned-list" style="margin-top:14px;"></div>
+      </div>
+    </div>
+
+    <!-- ── Panel B: Add projects picker ── -->
+    <div id="modal-add-panel" style="display:none;flex-direction:column;flex:1;overflow:hidden;">
+      <!-- Toolbar -->
+      <div style="display:flex;align-items:center;gap:10px;padding:14px 20px;border-bottom:1px solid var(--border);">
+        <button class="btn btn-outline" onclick="closeAddProjectsPanel()" style="display:flex;align-items:center;gap:5px;">
+          ← Back
+        </button>
+        <input type="text" id="modal-add-search" placeholder="🔍 Search all projects…"
+          oninput="_filterAddList(this.value)"
+          style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;">
+        <button class="btn btn-outline" style="white-space:nowrap;" onclick="_addSelectAll(true)">Select all</button>
+        <button class="btn btn-outline" style="white-space:nowrap;" onclick="_addSelectAll(false)">Clear</button>
+      </div>
+      <!-- Project checklist -->
+      <div style="flex:1;overflow-y:auto;padding:0 20px;">
+        <div id="modal-add-list" style="margin-top:10px;"></div>
+      </div>
+      <!-- Sticky footer -->
+      <div style="padding:14px 20px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;background:#fff;">
+        <span id="modal-add-count" style="font-size:13px;color:var(--subtle);">0 selected</span>
+        <button class="btn btn-primary" onclick="grantUserProject()">＋ Assign Selected</button>
+      </div>
+    </div>
+
+  </div>
+</div>
 
 <div id="toast"></div>
 
@@ -737,6 +1547,18 @@
     } catch(e) { toast("Failed", true); }
   }
 
+  async function resyncDb() {
+    try {
+      const r = await fetch(`${API}/resync-db`, { method: "POST" });
+      const d = await r.json();
+      if (d.ok) {
+        toast("Resync started — projects missing from the database will be added. Refresh the page in a few seconds.");
+      } else {
+        toast(d.error || "Resync failed", true);
+      }
+    } catch(e) { toast("Request failed", true); }
+  }
+
   let activeJobId = null;
 
   async function loadJobs() {
@@ -802,10 +1624,1442 @@
     } catch(e) { content.textContent = "Failed to load log."; }
   }
 
+  // ── Tab switching ────────────────────────────────────────────
+  const TABS = ["dashboard", "settings", "global-settings", "playlists", "users", "project-access", "jobs"];
+  let _activeTab = "dashboard";
+
+  function switchTab(name) {
+    if (!TABS.includes(name)) return;
+    document.querySelectorAll(".tab-btn").forEach(b => {
+      b.classList.toggle("active", b.dataset.tab === name);
+    });
+    document.querySelectorAll(".tab-pane").forEach(p => {
+      p.classList.toggle("active", p.id === `tab-${name}`);
+    });
+    _activeTab = name;
+    // Lazy-load tab data on first switch
+    if (name === "users"           && !_usersLoaded)         { loadUsers(); loadGroups(); _usersLoaded = true; }
+    if (name === "jobs"            && !_jobsLoaded)          { loadJobs();  _jobsLoaded  = true; }
+    if (name === "global-settings" && !_globalSettingsLoaded){ loadGlobalSettings(); _globalSettingsLoaded = true; }
+    if (name === "playlists"       && !_playlistsLoaded)     { loadAdminPlaylists(); _playlistsLoaded = true; }
+    if (name === "project-access"  && !_projectAccessLoaded) { loadProjectAccess(); _projectAccessLoaded = true; }
+  }
+  let _usersLoaded          = false;
+  let _jobsLoaded           = false;
+  let _globalSettingsLoaded = false;
+  let _playlistsLoaded      = false;
+  let _projectAccessLoaded  = false;
+
+  document.querySelectorAll(".tab-btn").forEach(b => {
+    b.addEventListener("click", () => switchTab(b.dataset.tab));
+  });
+
+  // ── Global Settings ──────────────────────────────────────────
+  let _globalSettingsData = [];
+  let _globalSettingsDirty = {};  // key → new value
+
+  async function loadGlobalSettings() {
+    const wrap = document.getElementById("global-settings-list");
+    if (!wrap) return;
+    try {
+      const res  = await fetch(`${API}/settings`);
+      const data = await res.json();
+      _globalSettingsData = data.settings || [];
+      _globalSettingsDirty = {};
+      renderGlobalSettings();
+    } catch(e) { wrap.innerHTML = '<p style="color:var(--err);font-size:13px;">Failed to load settings.</p>'; }
+  }
+
+  function renderGlobalSettings() {
+    const wrap = document.getElementById("global-settings-list");
+    if (!wrap) return;
+    if (!_globalSettingsData.length) {
+      wrap.innerHTML = '<p style="color:var(--subtle);font-size:13px;">No settings found.</p>';
+      return;
+    }
+    wrap.innerHTML = _globalSettingsData.map((s, i) => `
+      <div class="setting-row" style="border-bottom:1px solid var(--border);padding:14px 0;${i===0?"padding-top:0":""}">
+        <div class="setting-info" style="flex:1;min-width:0;">
+          <div class="setting-label">${_esc(s.label || s.key)}</div>
+          <div class="setting-desc" style="font-size:11px;margin-top:2px;">${_esc(s.description || "")}</div>
+          <div style="font-size:10px;color:var(--subtle);margin-top:2px;font-family:monospace;">${_esc(s.key)}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;flex-shrink:0;">
+          <input type="${s.type === 'number' ? 'number' : 'text'}" id="gs-val-${i}"
+            value="${_esc(String(s.value !== undefined ? s.value : ""))}"
+            step="${s.type === 'number' ? 'any' : ''}"
+            style="width:110px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;"
+            onchange="_gsChange(${i}, this.value, ${JSON.stringify(s.type)})">
+          <label title="Allow users to override this setting" style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--subtle);cursor:pointer;white-space:nowrap;">
+            <input type="checkbox" id="gs-override-${i}" ${s.can_be_overridden ? "checked" : ""}
+              onchange="_gsOverride(${i}, this.checked)">
+            Allow override
+          </label>
+        </div>
+      </div>
+    `).join("");
+  }
+
+  function _esc(str) {
+    return String(str).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  }
+
+  function _gsChange(idx, val, type) {
+    const s = _globalSettingsData[idx];
+    if (!s) return;
+    _globalSettingsDirty[s.key] = { value: type === "number" ? Number(val) : val };
+  }
+
+  function _gsOverride(idx, checked) {
+    const s = _globalSettingsData[idx];
+    if (!s) return;
+    if (!_globalSettingsDirty[s.key]) _globalSettingsDirty[s.key] = { value: s.value };
+    _globalSettingsDirty[s.key].can_be_overridden = checked;
+  }
+
+  async function saveGlobalSettings() {
+    const statusEl = document.getElementById("global-settings-status");
+    // Collect current form values (user may have typed without triggering onchange)
+    _globalSettingsData.forEach((s, i) => {
+      const inp = document.getElementById(`gs-val-${i}`);
+      const ovr = document.getElementById(`gs-override-${i}`);
+      if (!inp) return;
+      const val = s.type === "number" ? Number(inp.value) : inp.value;
+      if (!_globalSettingsDirty[s.key]) _globalSettingsDirty[s.key] = {};
+      _globalSettingsDirty[s.key].value = val;
+      if (ovr) _globalSettingsDirty[s.key].can_be_overridden = ovr.checked;
+    });
+    if (!Object.keys(_globalSettingsDirty).length) {
+      if (statusEl) statusEl.textContent = "No changes.";
+      return;
+    }
+    try {
+      const res  = await fetch(`${API}/settings`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(_globalSettingsDirty),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        _globalSettingsData = data.settings || _globalSettingsData;
+        _globalSettingsDirty = {};
+        renderGlobalSettings();
+        if (statusEl) { statusEl.textContent = "Saved ✓"; setTimeout(() => { statusEl.textContent = ""; }, 3000); }
+      } else {
+        if (statusEl) statusEl.textContent = "Error: " + (data.error || "unknown");
+      }
+    } catch(e) { if (statusEl) statusEl.textContent = "Failed: " + e.message; }
+  }
+
+  // ── Admin Playlists ──────────────────────────────────────────
+  let _adminPlaylists = [];
+
+  async function loadAdminPlaylists() {
+    const wrap = document.getElementById("playlist-admin-list");
+    if (!wrap) return;
+    try {
+      const res  = await fetch(`${API}/playlists`);
+      const data = await res.json();
+      _adminPlaylists = data.playlists || [];
+      renderAdminPlaylists();
+    } catch(e) { wrap.innerHTML = '<p style="color:var(--err);font-size:13px;">Failed to load playlists.</p>'; }
+  }
+
+  const PLAYLISTS_API = API.replace("/admin", "") + "/playlists";
+
+  function renderAdminPlaylists() {
+    const wrap = document.getElementById("playlist-admin-list");
+    if (!wrap) return;
+    if (!_adminPlaylists.length) {
+      wrap.innerHTML = '<p style="color:var(--subtle);font-size:13px;">No playlists yet.</p>';
+      return;
+    }
+    const rows = _adminPlaylists.map(pl => {
+      const icon  = pl.is_shared ? "🎵" : "🎧";
+      const owner = pl.owner_name || (pl.owner_id ? pl.owner_email || pl.owner_id : "Admin");
+      const sharedBadge = pl.is_shared
+        ? '<span style="font-size:10px;background:#dcfce7;color:#166534;padding:2px 6px;border-radius:10px;font-weight:600;">All users</span>'
+        : '<span style="font-size:10px;background:#f1f5f9;color:#64748b;padding:2px 6px;border-radius:10px;">Restricted</span>';
+      return `<tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:10px 8px;font-size:13px;">${icon} ${_esc(pl.name)}</td>
+        <td style="padding:10px 8px;font-size:12px;color:var(--subtle);">${_esc(owner)}</td>
+        <td style="padding:10px 8px;">${sharedBadge}</td>
+        <td style="padding:10px 8px;font-size:12px;color:var(--subtle);text-align:center;">${pl.project_count || 0}</td>
+        <td style="padding:10px 8px;text-align:right;display:flex;gap:6px;justify-content:flex-end;">
+          <button class="btn btn-outline" style="padding:4px 10px;font-size:11px;" onclick="openPlsShareModal(${pl.id})">🔗 Share</button>
+          <button class="btn btn-outline" style="padding:4px 10px;font-size:11px;color:var(--err);border-color:var(--err);" onclick="adminDeletePlaylist(${pl.id})">Delete</button>
+        </td>
+      </tr>`;
+    }).join("");
+    wrap.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead><tr style="border-bottom:2px solid var(--border);">
+        <th style="text-align:left;padding:8px;font-weight:600;">Name</th>
+        <th style="text-align:left;padding:8px;font-weight:600;">Owner</th>
+        <th style="text-align:left;padding:8px;font-weight:600;">Visibility</th>
+        <th style="text-align:center;padding:8px;font-weight:600;">Projects</th>
+        <th></th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  }
+
+  async function adminDeletePlaylist(id) {
+    if (!confirm("Delete this playlist? Projects will not be deleted.")) return;
+    try {
+      const res = await fetch(`${PLAYLISTS_API}/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Failed");
+      _adminPlaylists = _adminPlaylists.filter(p => p.id !== id);
+      renderAdminPlaylists();
+      toast("Playlist deleted.");
+    } catch(e) { toast("Failed to delete playlist.", true); }
+  }
+
+  // ── Playlist Share Modal ─────────────────────────────────────
+  let _plsModalId = null;
+
+  function closePlsModal() {
+    document.getElementById("playlist-share-modal").style.display = "none";
+    _plsModalId = null;
+  }
+
+  async function openPlsShareModal(playlistId) {
+    _plsModalId = playlistId;
+    const modal = document.getElementById("playlist-share-modal");
+    const body  = document.getElementById("pls-modal-body");
+    const title = document.getElementById("pls-modal-title");
+    modal.style.display = "flex";
+    body.innerHTML = '<p style="color:var(--subtle);font-size:13px;">Loading…</p>';
+
+    try {
+      const [accessRes, usersRes] = await Promise.all([
+        fetch(`${PLAYLISTS_API}/${playlistId}/access`),
+        fetch(USERS_API + "?limit=200"),
+      ]);
+      const accessData = await accessRes.json();
+      const usersData  = await usersRes.json();
+      title.textContent = `Sharing: ${accessData.playlist?.name || ""}`;
+      renderPlsShareModal(accessData, usersData.users || []);
+    } catch(e) {
+      body.innerHTML = `<p style="color:var(--err);font-size:13px;">${e.message}</p>`;
+    }
+  }
+
+  function renderPlsShareModal(data, allUsers) {
+    const body = document.getElementById("pls-modal-body");
+    const pl   = data.playlist || {};
+    const currentUsers  = data.users  || [];
+    const currentGroups = data.groups || [];
+    const allGroups     = data.all_groups || [];
+
+    // Section helper
+    const sec = (title, content) =>
+      `<div style="margin-bottom:18px;">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:#94a3b8;letter-spacing:.06em;margin-bottom:8px;">${title}</div>
+        ${content}
+      </div>`;
+
+    // All users toggle
+    const allUsersRow = `
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:8px 10px;border-radius:8px;background:#f8fafc;border:1px solid var(--border);">
+        <input type="checkbox" id="pls-all-users" ${pl.is_shared ? "checked" : ""}
+          onchange="setPlsAllUsers(${pl.id}, this.checked)"
+          style="width:16px;height:16px;accent-color:#0b5cff;cursor:pointer;">
+        <span>
+          <span style="font-size:13px;font-weight:600;color:#0f172a;">Visible to all users</span><br>
+          <span style="font-size:11px;color:#64748b;">Anyone with a login can see this playlist and its projects</span>
+        </span>
+      </label>`;
+
+    // Groups
+    const grantedGroupIds = new Set(currentGroups.map(g => g.group_id));
+    const groupRows = allGroups.length
+      ? allGroups.map(g => {
+          const checked = grantedGroupIds.has(g.id);
+          return `<label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:6px 8px;border-radius:6px;${checked?"background:#f0fdf4;":""}">
+            <input type="checkbox" ${checked ? "checked" : ""} onchange="togglePlsGroup(${pl.id},${g.id},this.checked)"
+              style="width:14px;height:14px;accent-color:#16a34a;cursor:pointer;">
+            <span style="font-size:13px;color:#0f172a;">${_esc(g.name)}</span>
+            <span style="font-size:11px;color:#94a3b8;">(${g.member_count||0} members)</span>
+          </label>`;
+        }).join("")
+      : '<p style="font-size:12px;color:var(--subtle);">No groups yet.</p>';
+
+    // Individual users
+    const grantedUserIds = new Set(currentUsers.map(u => u.user_id));
+    const userItems = currentUsers.map(u =>
+      `<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 8px;border-radius:6px;background:#f8fafc;margin-bottom:4px;">
+        <span style="font-size:13px;color:#0f172a;">${_esc(u.name || u.email)}</span>
+        <span style="font-size:11px;color:#94a3b8;margin-right:8px;">${_esc(u.email)}</span>
+        <button onclick="removePlsUser(${pl.id},'${_esc(u.user_id)}')" style="background:none;border:none;cursor:pointer;color:#ef4444;font-size:14px;padding:2px 6px;border-radius:4px;" title="Revoke access">✕</button>
+      </div>`
+    ).join("");
+
+    // Add user select — users not already granted
+    const availableUsers = allUsers.filter(u => {
+      const uid = u.local_id ? `local:${u.local_id}` : u.id;
+      return !grantedUserIds.has(uid);
+    });
+    const userOptions = availableUsers.map(u => {
+      const uid = u.local_id ? `local:${u.local_id}` : u.id;
+      return `<option value="${_esc(uid)}">${_esc(u.name||u.email||u.username)} — ${_esc(u.email||u.username||"")}</option>`;
+    }).join("");
+    const addUserRow = availableUsers.length
+      ? `<div style="display:flex;gap:6px;margin-top:8px;">
+          <select id="pls-add-user-sel" style="flex:1;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;">
+            <option value="">— select user —</option>
+            ${userOptions}
+          </select>
+          <button class="btn btn-outline" style="padding:5px 12px;font-size:12px;" onclick="addPlsUser(${pl.id})">Add</button>
+        </div>`
+      : "";
+
+    body.innerHTML =
+      sec("Visibility", allUsersRow) +
+      sec("Groups", `<div style="display:flex;flex-direction:column;gap:2px;">${groupRows}</div>`) +
+      sec("Individual Users",
+        (userItems || '<p style="font-size:12px;color:var(--subtle);">No individual users yet.</p>') +
+        addUserRow
+      );
+  }
+
+  async function setPlsAllUsers(playlistId, isShared) {
+    try {
+      await fetch(`${PLAYLISTS_API}/${playlistId}/sharing`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_shared: isShared }),
+      });
+      // Update local cache
+      const pl = _adminPlaylists.find(p => p.id === playlistId);
+      if (pl) pl.is_shared = isShared;
+      renderAdminPlaylists();
+      toast(isShared ? "Visible to all users." : "Restricted to specific users/groups.");
+    } catch(e) { toast("Failed: " + e.message, true); }
+  }
+
+  async function togglePlsGroup(playlistId, groupId, add) {
+    try {
+      if (add) {
+        await fetch(`${PLAYLISTS_API}/${playlistId}/access/groups`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ group_id: groupId }),
+        });
+      } else {
+        await fetch(`${PLAYLISTS_API}/${playlistId}/access/groups/${groupId}`, { method: "DELETE" });
+      }
+      await openPlsShareModal(playlistId);  // refresh modal
+    } catch(e) { toast("Failed: " + e.message, true); }
+  }
+
+  async function addPlsUser(playlistId) {
+    const sel = document.getElementById("pls-add-user-sel");
+    const userId = sel?.value;
+    if (!userId) return;
+    try {
+      await fetch(`${PLAYLISTS_API}/${playlistId}/access/users`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: userId }),
+      });
+      await openPlsShareModal(playlistId);
+    } catch(e) { toast("Failed: " + e.message, true); }
+  }
+
+  async function removePlsUser(playlistId, userId) {
+    try {
+      await fetch(`${PLAYLISTS_API}/${playlistId}/access/users/${encodeURIComponent(userId)}`, { method: "DELETE" });
+      await openPlsShareModal(playlistId);
+    } catch(e) { toast("Failed: " + e.message, true); }
+  }
+
+  async function exportPlaylists() {
+    try {
+      const res  = await fetch(`${API}/playlists/export`);
+      const data = await res.json();
+      const blob = new Blob([JSON.stringify(data.export, null, 2)], { type: "application/json" });
+      const url  = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `playlists_export_${new Date().toISOString().slice(0,10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast("Export downloaded.");
+    } catch(e) { toast("Export failed: " + e.message, true); }
+  }
+
+  async function importPlaylists(input) {
+    const file = input.files[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      const body = data.playlists ? data : (data.export || data);
+      const res  = await fetch(`${API}/playlists/import`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ export: body }),
+      });
+      const result = await res.json();
+      if (result.ok) {
+        toast(`Import done: ${result.created} created, ${result.skipped} skipped, ${result.projects_added} memberships added.`);
+        _playlistsLoaded = false;
+        loadAdminPlaylists();
+      } else {
+        toast("Import failed: " + (result.error || "unknown"), true);
+      }
+    } catch(e) { toast("Import failed: " + e.message, true); }
+    input.value = "";  // reset file input
+  }
+
+  // ── Users ────────────────────────────────────────────────────
+  const USERS_API = {{ (app_prefix or "") | tojson }} + "/api/v1/users";
+  let _allUsers = [];
+  // Map from row-index → user object, rebuilt on each render; avoids string-escaping in onclick
+  const _userRowMap = {};
+  let _openUserMenuIdx = null;
+
+  function _avatarHtml(u) {
+    if (u.picture) {
+      return `<img class="user-avatar" src="${u.picture}" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='inline-flex'">
+              <span class="user-avatar" style="display:none">${(u.name||u.email||"?")[0].toUpperCase()}</span>`;
+    }
+    return `<span class="user-avatar">${(u.name||u.email||"?")[0].toUpperCase()}</span>`;
+  }
+
+  function _renderUsers(users) {
+    const wrap = document.getElementById("user-table-wrap");
+    if (!users.length) {
+      wrap.innerHTML = '<p style="color:var(--subtle);font-size:13px;padding:14px 0">No users found.</p>';
+      return;
+    }
+    Object.keys(_userRowMap).forEach(k => delete _userRowMap[k]);
+
+    const rows = users.map((u, idx) => {
+      _userRowMap[idx] = u;
+      const inactiveCls = u.is_active === 0 ? " inactive" : "";
+      const roleCls = u.role === 'admin' ? 'admin' : (u.role === 'contributor' ? 'contributor' : 'user');
+      const roleLabel = u.role === 'admin' ? 'Admin' : (u.role === 'contributor' ? 'Contributor' : 'User');
+      const authLabel = u.auth_type === 'google' ? 'Google' : 'Local';
+      const lastSeen = u.last_seen ? _relativeTime(u.last_seen) : "—";
+
+      let menuItems = '';
+      if (u.role === "admin") {
+        menuItems += `<button class="user-menu-item" onclick="_userAction(${idx},'demote')">👤 Make User</button>`;
+      } else if (u.role === "contributor") {
+        menuItems += `<button class="user-menu-item promote" onclick="_userAction(${idx},'promote')">⭐ Make Admin</button>`;
+        menuItems += `<button class="user-menu-item" onclick="_userAction(${idx},'demote')">👤 Make User</button>`;
+      } else {
+        menuItems += `<button class="user-menu-item promote" onclick="_userAction(${idx},'promote')">⭐ Make Admin</button>`;
+        menuItems += `<button class="user-menu-item success" onclick="_userAction(${idx},'make-contributor')">✦ Make Contributor</button>`;
+      }
+      if (u.auth_type === "local") {
+        menuItems += '<div class="user-menu-divider"></div>';
+        if (u.is_active === 0) {
+          menuItems += `<button class="user-menu-item success" onclick="_userAction(${idx},'activate')">✓ Activate Account</button>`;
+        } else {
+          menuItems += `<button class="user-menu-item danger" onclick="_userAction(${idx},'deactivate')">✕ Deactivate Account</button>`;
+        }
+      }
+      if (u.role !== "admin") {
+        menuItems += '<div class="user-menu-divider"></div>';
+        menuItems += `<button class="user-menu-item success" onclick="_userAction(${idx},'projects')">📁 Manage Projects</button>`;
+      }
+
+      return `<div class="user-row${inactiveCls}" id="user-row-${idx}">
+        ${_avatarHtml(u)}
+        <div class="user-info">
+          <div class="user-name">${_esc(u.name || "—")}</div>
+          <div class="user-email">${_esc(u.email || "")}</div>
+        </div>
+        <div class="user-badges">
+          <span class="auth-badge ${u.auth_type}">${authLabel}</span>
+          <span class="role-badge ${roleCls}">${roleLabel}</span>
+        </div>
+        <div class="user-seen">${lastSeen}</div>
+        <div class="user-menu-wrap">
+          <button class="user-menu-btn" onclick="_toggleUserMenu(${idx}, event)" title="Actions">···</button>
+          <div class="user-menu" id="user-menu-${idx}">
+            ${menuItems}
+          </div>
+        </div>
+      </div>`;
+    }).join("");
+
+    wrap.innerHTML = `<div class="user-list">${rows}</div>`;
+  }
+
+  // Single dispatcher — idx is a safe integer, never user-controlled HTML
+  async function _userAction(idx, action) {
+    // Close action menu
+    if (_openUserMenuIdx !== null) {
+      const m = document.getElementById(`user-menu-${_openUserMenuIdx}`);
+      if (m) m.classList.remove("open");
+      _openUserMenuIdx = null;
+    }
+    const u = _userRowMap[idx];
+    if (!u) return;
+    if (action === 'promote')          await setRole(u.id, 'admin');
+    else if (action === 'make-contributor') await setRole(u.id, 'contributor');
+    else if (action === 'demote')      await setRole(u.id, 'user');
+    else if (action === 'activate')    await setActive(u.id, true);
+    else if (action === 'deactivate')  await setActive(u.id, false);
+    else if (action === 'projects')    await openUserProjectsModal(u.id, u.name || u.email);
+  }
+
+  function _toggleUserMenu(idx, event) {
+    event.stopPropagation();
+    const menu = document.getElementById(`user-menu-${idx}`);
+    if (!menu) return;
+    const isOpen = menu.classList.contains("open");
+    // Close any other open menu
+    if (_openUserMenuIdx !== null && _openUserMenuIdx !== idx) {
+      const other = document.getElementById(`user-menu-${_openUserMenuIdx}`);
+      if (other) other.classList.remove("open");
+    }
+    menu.classList.toggle("open", !isOpen);
+    _openUserMenuIdx = isOpen ? null : idx;
+  }
+
+  function _relativeTime(isoStr) {
+    try {
+      const diff = Date.now() - new Date(isoStr).getTime();
+      const sec = Math.floor(diff / 1000);
+      if (sec < 60) return "Just now";
+      const min = Math.floor(sec / 60);
+      if (min < 60) return `${min}m ago`;
+      const hr = Math.floor(min / 60);
+      if (hr < 24) return `${hr}h ago`;
+      const day = Math.floor(hr / 24);
+      if (day < 7) return `${day}d ago`;
+      const wk = Math.floor(day / 7);
+      if (wk < 5) return `${wk}w ago`;
+      const d = new Date(isoStr);
+      return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    } catch(e) { return "—"; }
+  }
+
+  // Close user action menus on outside tap
+  document.addEventListener("pointerdown", (ev) => {
+    if (_openUserMenuIdx !== null && !ev.target.closest(".user-menu-wrap")) {
+      const m = document.getElementById(`user-menu-${_openUserMenuIdx}`);
+      if (m) m.classList.remove("open");
+      _openUserMenuIdx = null;
+    }
+  });
+
+  function _esc(s) {
+    return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  }
+
+  async function loadUsers() {
+    const wrap = document.getElementById("user-table-wrap");
+    wrap.innerHTML = '<p style="color:var(--subtle);font-size:13px">Loading…</p>';
+    try {
+      const r = await fetch(USERS_API);
+      const d = await r.json();
+      if (!d.ok) { toast(d.error || "Failed to load users", true); return; }
+      _allUsers = d.users || [];
+      const q = document.getElementById("user-search").value;
+      filterUsers(q);
+    } catch(e) { toast("Failed to load users", true); }
+  }
+
+  function filterUsers(q) {
+    const term = (q || "").toLowerCase();
+    const filtered = term
+      ? _allUsers.filter(u =>
+          (u.name||"").toLowerCase().includes(term) ||
+          (u.email||"").toLowerCase().includes(term))
+      : _allUsers;
+    _renderUsers(filtered);
+  }
+
+  async function setRole(userId, role) {
+    try {
+      const r = await fetch(`${USERS_API}/${encodeURIComponent(userId)}/role`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role }),
+      });
+      const d = await r.json();
+      if (d.ok) {
+        toast(`Role updated to ${role}`);
+        await loadUsers();
+      } else {
+        toast(d.error || "Failed to update role", true);
+      }
+    } catch(e) { toast("Request failed", true); }
+  }
+
+  async function setActive(userId, active) {
+    try {
+      const r = await fetch(`${USERS_API}/${encodeURIComponent(userId)}/active`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_active: active }),
+      });
+      const d = await r.json();
+      if (d.ok) {
+        toast(`Account ${active ? "activated" : "deactivated"}`);
+        await loadUsers();
+      } else {
+        toast(d.error || "Failed to update status", true);
+      }
+    } catch(e) { toast("Request failed", true); }
+  }
+
+  // ── Groups ───────────────────────────────────────────────────
+  const GROUPS_API = {{ (app_prefix or "") | tojson }} + "/api/v1/groups";
+  let _allGroups = [];
+
+  async function loadGroups() {
+    const list = document.getElementById("group-list");
+    try {
+      const r = await fetch(GROUPS_API);
+      const d = await r.json();
+      if (!d.ok) { toast("Failed to load groups", true); return; }
+      _allGroups = d.groups || [];
+      _renderGroups();
+    } catch(e) { toast("Failed to load groups", true); }
+  }
+
+  function _renderGroups() {
+    const list = document.getElementById("group-list");
+    if (!_allGroups.length) {
+      list.innerHTML = '<p class="empty-hint">No groups yet. Create one above.</p>';
+      return;
+    }
+    list.innerHTML = _allGroups.map(g => `
+      <div class="group-item" id="group-item-${g.id}">
+        <div class="group-item-header" onclick="toggleGroup(${g.id})">
+          <span class="group-chevron">▶</span>
+          <span class="group-name-label">${_esc(g.name)}</span>
+          ${g.description ? `<span class="group-desc-label">${_esc(g.description)}</span>` : ""}
+          <div class="group-meta">
+            <span class="group-count-badge" title="Members">${g.member_count} member${g.member_count===1?"":"s"}</span>
+            <span class="group-count-badge" title="Projects" style="background:#f0fdf4;color:#16a34a">${g.project_count} project${g.project_count===1?"":"s"}</span>
+            <button class="btn-xs deactivate" style="padding:3px 8px" onclick="event.stopPropagation();deleteGroup(${g.id}, '${_esc(g.name)}')">✕ Delete</button>
+          </div>
+        </div>
+        <div class="group-body" id="group-body-${g.id}">
+          <div class="group-columns">
+            <!-- Members column -->
+            <div class="group-col-panel">
+              <div class="group-col-header">
+                <p class="group-section-title">👥 Members</p>
+              </div>
+              <div class="group-chip-area" id="group-members-${g.id}">
+                <span class="empty-hint">Loading…</span>
+              </div>
+              <div class="add-row">
+                <div class="ms-wrap" id="user-ms-wrap-${g.id}">
+                  <button type="button" class="ms-trigger" id="user-ms-btn-${g.id}" onclick="toggleMs('user',${g.id})">
+                    <span class="ms-trigger-label" id="user-ms-label-${g.id}">Select users to add…</span>
+                    <span class="ms-chevron">▾</span>
+                  </button>
+                  <div class="ms-dropdown hidden" id="user-ms-dropdown-${g.id}">
+                    <input type="text" class="ms-search" placeholder="🔍 Search users…" oninput="filterMs('user',${g.id},this.value)">
+                    <div class="ms-select-all">
+                      <span onclick="selectAllMs('user',${g.id},true)">Select all</span>
+                      <span onclick="selectAllMs('user',${g.id},false)">Clear all</span>
+                    </div>
+                    <div class="ms-options" id="user-ms-options-${g.id}"></div>
+                  </div>
+                </div>
+                <div class="add-row-actions">
+                  <button class="btn-sm-primary" onclick="addMember(${g.id})">+ Add Members</button>
+                </div>
+              </div>
+            </div>
+            <!-- Projects column -->
+            <div class="group-col-panel">
+              <div class="group-col-header">
+                <p class="group-section-title">📁 Assigned Projects</p>
+              </div>
+              <div class="group-chip-area" id="group-projects-${g.id}">
+                <span class="empty-hint">Loading…</span>
+              </div>
+              <div class="add-row">
+                <div class="ms-wrap" id="project-ms-wrap-${g.id}">
+                  <button type="button" class="ms-trigger" id="project-ms-btn-${g.id}" onclick="toggleMs('project',${g.id})">
+                    <span class="ms-trigger-label" id="project-ms-label-${g.id}">Select projects to assign…</span>
+                    <span class="ms-chevron">▾</span>
+                  </button>
+                  <div class="ms-dropdown hidden" id="project-ms-dropdown-${g.id}">
+                    <input type="text" class="ms-search" placeholder="🔍 Search projects…" oninput="filterMs('project',${g.id},this.value)">
+                    <div class="ms-select-all">
+                      <span onclick="selectAllMs('project',${g.id},true)">Select all</span>
+                      <span onclick="selectAllMs('project',${g.id},false)">Clear all</span>
+                    </div>
+                    <div class="ms-options" id="project-ms-options-${g.id}"></div>
+                  </div>
+                </div>
+                <div class="add-row-actions">
+                  <button class="btn-sm-success" onclick="assignProject(${g.id})">+ Assign Projects</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `).join("");
+  }
+
+  async function toggleGroup(groupId) {
+    const item = document.getElementById(`group-item-${groupId}`);
+    if (!item) return;
+    const isOpen = item.classList.contains("open");
+    // Close all others
+    document.querySelectorAll(".group-item.open").forEach(el => el.classList.remove("open"));
+    if (isOpen) return;
+    item.classList.add("open");
+    // Load members + projects + populate selects
+    await Promise.all([
+      _loadGroupMembers(groupId),
+      _loadGroupProjects(groupId),
+      _populateUserSelect(groupId),
+      _populateProjectSelect(groupId),
+    ]);
+  }
+
+  async function _loadGroupMembers(groupId) {
+    const wrap = document.getElementById(`group-members-${groupId}`);
+    if (!wrap) return;
+    try {
+      const r = await fetch(`${GROUPS_API}/${groupId}/members`);
+      const d = await r.json();
+      const members = d.members || [];
+      if (!members.length) {
+        wrap.innerHTML = '<span class="empty-hint">No members yet.</span>';
+        return;
+      }
+      // Store members in a temporary map keyed by index to avoid string escaping
+      const memberMap = {};
+      wrap.innerHTML = members.map((m, i) => {
+        memberMap[i] = m.user_id;
+        return `<span class="member-chip">
+          ${_esc(m.name || m.email)}
+          <span class="chip-remove" title="Remove" data-gid="${groupId}" data-midx="${i}">×</span>
+        </span>`;
+      }).join("");
+      wrap.querySelectorAll(".chip-remove").forEach(el => {
+        el.addEventListener("click", () => {
+          removeMember(parseInt(el.dataset.gid), memberMap[parseInt(el.dataset.midx)]);
+        });
+      });
+    } catch(e) { wrap.innerHTML = '<span class="empty-hint">Error loading members.</span>'; }
+  }
+
+  async function _loadGroupProjects(groupId) {
+    const wrap = document.getElementById(`group-projects-${groupId}`);
+    if (!wrap) return;
+    try {
+      const r = await fetch(`${GROUPS_API}/${groupId}/projects`);
+      const d = await r.json();
+      const projects = d.projects || [];
+      if (!projects.length) {
+        wrap.innerHTML = '<span class="empty-hint">No projects assigned.</span>';
+        return;
+      }
+      const projectMap = {};
+      wrap.innerHTML = projects.map((p, i) => {
+        projectMap[i] = p.job_id;
+        return `<span class="project-chip">
+          ${_esc(p.name || p.job_id.slice(0,12))}
+          <span class="chip-remove" title="Remove" data-gid="${groupId}" data-pidx="${i}">×</span>
+        </span>`;
+      }).join("");
+      wrap.querySelectorAll(".chip-remove").forEach(el => {
+        el.addEventListener("click", () => {
+          unassignProject(parseInt(el.dataset.gid), projectMap[parseInt(el.dataset.pidx)]);
+        });
+      });
+    } catch(e) { wrap.innerHTML = '<span class="empty-hint">Error loading projects.</span>'; }
+  }
+
+  // ── Multi-select helpers ─────────────────────────────────────
+  function _msOptionsEl(type, groupId) {
+    return document.getElementById(`${type}-ms-options-${groupId}`);
+  }
+  function _msBtnEl(type, groupId) {
+    return document.getElementById(`${type}-ms-btn-${groupId}`);
+  }
+  function _msLabelEl(type, groupId) {
+    return document.getElementById(`${type}-ms-label-${groupId}`);
+  }
+  function _msDropdownEl(type, groupId) {
+    return document.getElementById(`${type}-ms-dropdown-${groupId}`);
+  }
+
+  function _updateMsLabel(type, groupId) {
+    const opts = _msOptionsEl(type, groupId);
+    if (!opts) return;
+    const checked = opts.querySelectorAll('input[type="checkbox"]:checked');
+    const label = _msLabelEl(type, groupId);
+    const btn = _msBtnEl(type, groupId);
+    if (!label) return;
+    // Remove existing badge if any
+    btn && btn.querySelectorAll('.ms-badge').forEach(b => b.remove());
+    if (checked.length === 0) {
+      label.textContent = type === 'user' ? 'Select users to add…' : 'Select projects to assign…';
+      label.classList.remove('has-selection');
+    } else if (checked.length === 1) {
+      label.textContent = checked[0].dataset.label;
+      label.classList.add('has-selection');
+    } else {
+      label.textContent = `${checked.length} selected`;
+      label.classList.add('has-selection');
+      if (btn) {
+        const badge = document.createElement('span');
+        badge.className = 'ms-badge';
+        badge.textContent = checked.length;
+        // Insert before chevron
+        const chevron = btn.querySelector('.ms-chevron');
+        if (chevron) btn.insertBefore(badge, chevron);
+      }
+    }
+  }
+
+  function toggleMs(type, groupId) {
+    const dropdown = _msDropdownEl(type, groupId);
+    const btn = _msBtnEl(type, groupId);
+    if (!dropdown) return;
+    // Close all other open ms dropdowns
+    document.querySelectorAll('.ms-dropdown').forEach(d => {
+      if (d !== dropdown) d.classList.add('hidden');
+    });
+    document.querySelectorAll('.ms-trigger').forEach(b => {
+      if (b !== btn) b.classList.remove('open');
+    });
+    const isHidden = dropdown.classList.contains('hidden');
+    dropdown.classList.toggle('hidden', !isHidden);
+    btn && btn.classList.toggle('open', isHidden);
+    if (isHidden) {
+      // Focus search input
+      const search = dropdown.querySelector('.ms-search');
+      if (search) setTimeout(() => search.focus(), 50);
+    }
+  }
+
+  function filterMs(type, groupId, query) {
+    const opts = _msOptionsEl(type, groupId);
+    if (!opts) return;
+    const q = query.toLowerCase().trim();
+    opts.querySelectorAll('.ms-option').forEach(row => {
+      const text = (row.dataset.label || '').toLowerCase();
+      row.style.display = !q || text.includes(q) ? '' : 'none';
+    });
+  }
+
+  function selectAllMs(type, groupId, checked) {
+    const opts = _msOptionsEl(type, groupId);
+    if (!opts) return;
+    opts.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+      // Only select visible options
+      if (cb.closest('.ms-option').style.display !== 'none') cb.checked = checked;
+    });
+    _updateMsLabel(type, groupId);
+  }
+
+  function _buildMsOptions(type, groupId, items) {
+    const opts = _msOptionsEl(type, groupId);
+    if (!opts) return;
+    if (!items.length) {
+      opts.innerHTML = '<div class="ms-empty">No options available.</div>';
+      return;
+    }
+    opts.innerHTML = items.map((item, i) => `
+      <label class="ms-option" data-label="${_esc(item.label)}">
+        <input type="checkbox" value="${_esc(item.value)}" data-label="${_esc(item.label)}">
+        <span>${_esc(item.label)}</span>
+      </label>
+    `).join('');
+    opts.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+      cb.addEventListener('change', () => _updateMsLabel(type, groupId));
+    });
+  }
+
+  function _getMsSelected(type, groupId) {
+    const opts = _msOptionsEl(type, groupId);
+    if (!opts) return [];
+    return Array.from(opts.querySelectorAll('input[type="checkbox"]:checked')).map(cb => cb.value);
+  }
+
+  function _clearMs(type, groupId) {
+    const opts = _msOptionsEl(type, groupId);
+    if (opts) opts.querySelectorAll('input[type="checkbox"]').forEach(cb => { cb.checked = false; });
+    const search = _msDropdownEl(type, groupId)?.querySelector('.ms-search');
+    if (search) { search.value = ''; filterMs(type, groupId, ''); }
+    _updateMsLabel(type, groupId);
+    _msDropdownEl(type, groupId)?.classList.add('hidden');
+    _msBtnEl(type, groupId)?.classList.remove('open');
+  }
+
+  // Close ms dropdowns when clicking outside
+  document.addEventListener('pointerdown', (ev) => {
+    if (!ev.target.closest('.ms-wrap')) {
+      document.querySelectorAll('.ms-dropdown').forEach(d => d.classList.add('hidden'));
+      document.querySelectorAll('.ms-trigger').forEach(b => b.classList.remove('open'));
+    }
+  });
+
+  async function _populateUserSelect(groupId) {
+    const users = _allUsers.length ? _allUsers : await (async () => {
+      const r = await fetch(USERS_API); const d = await r.json(); return d.users || [];
+    })();
+    _buildMsOptions('user', groupId, users.map(u => ({
+      value: u.id,
+      label: `${u.name || u.email} (${u.auth_type})`,
+    })));
+  }
+
+  async function _populateProjectSelect(groupId) {
+    try {
+      const r = await fetch(`${API}/jobs`);
+      const jobs = await r.json();
+      _buildMsOptions('project', groupId, jobs.map(j => ({
+        value: j.job_id,
+        label: j.project_name || j.job_id.slice(0, 40),
+      })));
+    } catch(e) { /* ignore */ }
+  }
+
+  async function createGroup() {
+    const name = document.getElementById("new-group-name").value.trim();
+    const desc = document.getElementById("new-group-desc").value.trim();
+    if (!name) { toast("Group name is required", true); return; }
+    try {
+      const r = await fetch(GROUPS_API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, description: desc }),
+      });
+      const d = await r.json();
+      if (d.ok) {
+        document.getElementById("new-group-name").value = "";
+        document.getElementById("new-group-desc").value = "";
+        toast(`Group "${name}" created`);
+        await loadGroups();
+      } else {
+        toast(d.error || "Failed to create group", true);
+      }
+    } catch(e) { toast("Request failed", true); }
+  }
+
+  async function deleteGroup(groupId, name) {
+    if (!confirm(`Delete group "${name}"? This cannot be undone.`)) return;
+    try {
+      const r = await fetch(`${GROUPS_API}/${groupId}`, { method: "DELETE" });
+      const d = await r.json();
+      if (d.ok) { toast("Group deleted"); await loadGroups(); }
+      else toast(d.error || "Failed", true);
+    } catch(e) { toast("Request failed", true); }
+  }
+
+  async function addMember(groupId) {
+    const userIds = _getMsSelected('user', groupId);
+    if (!userIds.length) { toast("Select at least one user", true); return; }
+    let added = 0, failed = 0;
+    for (const userId of userIds) {
+      try {
+        const r = await fetch(`${GROUPS_API}/${groupId}/members`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ user_id: userId }),
+        });
+        const d = await r.json();
+        if (d.ok) added++; else failed++;
+      } catch(e) { failed++; }
+    }
+    _clearMs('user', groupId);
+    if (added) toast(`${added} member${added>1?'s':''} added`);
+    if (failed) toast(`${failed} failed to add`, true);
+    await _loadGroupMembers(groupId);
+    await loadGroups();
+  }
+
+  async function removeMember(groupId, userId) {
+    try {
+      const r = await fetch(`${GROUPS_API}/${groupId}/members/${encodeURIComponent(userId)}`, {
+        method: "DELETE",
+      });
+      const d = await r.json();
+      if (d.ok) { toast("Member removed"); await _loadGroupMembers(groupId); await loadGroups(); }
+      else toast(d.error || "Failed", true);
+    } catch(e) { toast("Request failed", true); }
+  }
+
+  async function assignProject(groupId) {
+    const jobIds = _getMsSelected('project', groupId);
+    if (!jobIds.length) { toast("Select at least one project", true); return; }
+    let assigned = 0, failed = 0;
+    for (const jobId of jobIds) {
+      try {
+        const r = await fetch(`${GROUPS_API}/${groupId}/projects`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ job_id: jobId }),
+        });
+        const d = await r.json();
+        if (d.ok) assigned++; else failed++;
+      } catch(e) { failed++; }
+    }
+    _clearMs('project', groupId);
+    if (assigned) toast(`${assigned} project${assigned>1?'s':''} assigned`);
+    if (failed) toast(`${failed} failed to assign`, true);
+    await _loadGroupProjects(groupId);
+    await loadGroups();
+  }
+
+  async function unassignProject(groupId, jobId) {
+    try {
+      const r = await fetch(`${GROUPS_API}/${groupId}/projects/${encodeURIComponent(jobId)}`, {
+        method: "DELETE",
+      });
+      const d = await r.json();
+      if (d.ok) { toast("Project removed from group"); await _loadGroupProjects(groupId); await loadGroups(); }
+      else toast(d.error || "Failed", true);
+    } catch(e) { toast("Request failed", true); }
+  }
+
+  // ── User Project Access Modal ────────────────────────────────
+  let _modalUserId   = null;
+  let _modalAssigned = [];   // [{job_id, name, status, granted_at}]
+  let _modalAllJobs  = [];   // [{job_id, project_name, status}]
+
+  async function openUserProjectsModal(userId, userName) {
+    _modalUserId = userId;
+    document.getElementById("modal-user-title").textContent = `Projects for ${userName}`;
+    document.getElementById("modal-user-subtitle").textContent = "Loading…";
+    document.getElementById("user-projects-modal").classList.remove("hidden");
+    _showPanel("assigned");
+    await Promise.all([_loadModalAssigned(), _loadAllJobs()]);
+  }
+
+  function closeUserProjectsModal() {
+    document.getElementById("user-projects-modal").classList.add("hidden");
+    _modalUserId = null;
+    _modalAssigned = [];
+  }
+
+  document.getElementById("user-projects-modal").addEventListener("click", function(e) {
+    if (e.target === this) closeUserProjectsModal();
+  });
+
+  function _showPanel(name) {
+    document.getElementById("modal-assigned-panel").style.display = name === "assigned" ? "flex" : "none";
+    document.getElementById("modal-add-panel").style.display      = name === "add"      ? "flex" : "none";
+  }
+
+  function openAddProjectsPanel() {
+    _renderAddList("");
+    document.getElementById("modal-add-search").value = "";
+    _updateAddCount();
+    _showPanel("add");
+    setTimeout(() => document.getElementById("modal-add-search").focus(), 60);
+  }
+
+  function closeAddProjectsPanel() {
+    _showPanel("assigned");
+  }
+
+  // ── Assigned list ────────────────────────────────────────────
+  async function _loadModalAssigned() {
+    if (!_modalUserId) return;
+    const el = document.getElementById("modal-assigned-list");
+    el.innerHTML = '<p style="color:var(--subtle);font-size:13px;padding:20px 0;">Loading…</p>';
+    try {
+      const r = await fetch(`${USERS_API}/${encodeURIComponent(_modalUserId)}/projects`);
+      const d = await r.json();
+      _modalAssigned = d.projects || [];
+      document.getElementById("modal-user-subtitle").textContent =
+        _modalAssigned.length ? `${_modalAssigned.length} project${_modalAssigned.length === 1 ? "" : "s"} directly assigned`
+                              : "No projects directly assigned";
+      _renderAssignedList("");
+      const search = document.getElementById("modal-assign-search");
+      if (search) search.value = "";
+    } catch(e) {
+      document.getElementById("modal-assigned-list").innerHTML = '<p style="color:var(--err);font-size:13px;">Failed to load.</p>';
+    }
+  }
+
+  function _filterAssignedList(q) { _renderAssignedList(q); }
+
+  function _renderAssignedList(q) {
+    const el = document.getElementById("modal-assigned-list");
+    const lq = (q || "").toLowerCase();
+    const filtered = lq ? _modalAssigned.filter(p => (p.name || p.job_id).toLowerCase().includes(lq)) : _modalAssigned;
+    if (!filtered.length) {
+      el.innerHTML = `<p style="color:var(--subtle);font-size:13px;padding:20px 0;text-align:center;">${lq ? "No matching projects." : "No projects directly assigned."}</p>`;
+      return;
+    }
+    el.innerHTML = `
+      <table style="width:100%;border-collapse:collapse;">
+        <thead>
+          <tr style="border-bottom:2px solid var(--border);">
+            <th style="text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:var(--subtle);padding:6px 8px;">Project</th>
+            <th style="text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:var(--subtle);padding:6px 8px;width:90px;">Status</th>
+            <th style="text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:var(--subtle);padding:6px 8px;width:130px;">Granted</th>
+            <th style="width:60px;"></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${filtered.map(p => {
+            const statusColor = p.status === "completed" ? "#22c55e" : p.status === "running" ? "#f59e0b" : "#94a3b8";
+            return `<tr style="border-bottom:1px solid var(--border);" class="ap-row" data-jobid="${_esc(p.job_id)}">
+              <td style="padding:10px 8px;">
+                <div style="font-size:13px;font-weight:600;color:#0f172a;">${_esc(p.name || p.job_id)}</div>
+                <div style="font-size:10px;color:var(--subtle);margin-top:1px;">${_esc(p.job_id)}</div>
+              </td>
+              <td style="padding:10px 8px;">
+                <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:${statusColor};font-weight:600;">
+                  <span style="width:7px;height:7px;border-radius:50%;background:${statusColor};flex-shrink:0;"></span>
+                  ${_esc(p.status || "—")}
+                </span>
+              </td>
+              <td style="padding:10px 8px;font-size:11px;color:var(--subtle);">${_esc((p.granted_at || "").slice(0,10))}</td>
+              <td style="padding:10px 8px;text-align:right;">
+                <button onclick="revokeUserProject('${_esc(p.job_id)}')"
+                  style="background:none;border:1px solid #fca5a5;color:#ef4444;border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;"
+                  title="Remove access">Remove</button>
+              </td>
+            </tr>`;
+          }).join("")}
+        </tbody>
+      </table>`;
+  }
+
+  // ── Add projects picker ──────────────────────────────────────
+  async function _loadAllJobs() {
+    if (_modalAllJobs.length) return;   // already cached
+    try {
+      const r = await fetch(`${API}/jobs`);
+      _modalAllJobs = (await r.json()) || [];
+    } catch(e) { _modalAllJobs = []; }
+  }
+
+  function _filterAddList(q) { _renderAddList(q); _updateAddCount(); }
+
+  function _renderAddList(q) {
+    const el = document.getElementById("modal-add-list");
+    const lq = (q || "").toLowerCase();
+    const assignedIds = new Set(_modalAssigned.map(p => p.job_id));
+    const jobs = _modalAllJobs.filter(j => {
+      const label = (j.project_name || j.job_id).toLowerCase();
+      return !lq || label.includes(lq);
+    });
+    if (!jobs.length) {
+      el.innerHTML = '<p style="color:var(--subtle);font-size:13px;padding:20px 0;text-align:center;">No projects found.</p>';
+      return;
+    }
+    el.innerHTML = `
+      <table style="width:100%;border-collapse:collapse;">
+        <tbody>
+          ${jobs.map(j => {
+            const name = j.project_name || j.job_id;
+            const alreadyAssigned = assignedIds.has(j.job_id);
+            const statusColor = j.status === "completed" ? "#22c55e" : j.status === "running" ? "#f59e0b" : "#94a3b8";
+            return `<tr style="border-bottom:1px solid var(--border);${alreadyAssigned ? "opacity:.45;" : ""}">
+              <td style="padding:8px;">
+                <label style="display:flex;align-items:center;gap:10px;cursor:${alreadyAssigned ? "default" : "pointer"};">
+                  <input type="checkbox" class="add-proj-cb" value="${_esc(j.job_id)}"
+                    ${alreadyAssigned ? "disabled checked" : ""}
+                    onchange="_updateAddCount()"
+                    style="width:15px;height:15px;accent-color:#0b5cff;flex-shrink:0;">
+                  <span style="flex:1;min-width:0;">
+                    <span style="display:block;font-size:13px;font-weight:600;color:#0f172a;">${_esc(name)}</span>
+                    <span style="display:block;font-size:10px;color:var(--subtle);">${_esc(j.job_id)}</span>
+                  </span>
+                  <span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:${statusColor};font-weight:600;white-space:nowrap;margin-right:4px;">
+                    <span style="width:6px;height:6px;border-radius:50%;background:${statusColor};"></span>
+                    ${alreadyAssigned ? "Already assigned" : _esc(j.status || "")}
+                  </span>
+                </label>
+              </td>
+            </tr>`;
+          }).join("")}
+        </tbody>
+      </table>`;
+  }
+
+  function _addSelectAll(check) {
+    document.querySelectorAll(".add-proj-cb:not(:disabled)").forEach(cb => { cb.checked = check; });
+    _updateAddCount();
+  }
+
+  function _updateAddCount() {
+    const n = document.querySelectorAll(".add-proj-cb:not(:disabled):checked").length;
+    const el = document.getElementById("modal-add-count");
+    if (el) el.textContent = n === 0 ? "0 selected" : `${n} project${n === 1 ? "" : "s"} selected`;
+  }
+
+  async function grantUserProject() {
+    if (!_modalUserId) return;
+    const selected = Array.from(document.querySelectorAll(".add-proj-cb:not(:disabled):checked")).map(cb => cb.value);
+    if (!selected.length) { toast("Select at least one project", true); return; }
+    let ok = 0, fail = 0;
+    for (const jobId of selected) {
+      try {
+        const r = await fetch(`${USERS_API}/${encodeURIComponent(_modalUserId)}/projects`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ job_id: jobId }),
+        });
+        const d = await r.json();
+        d.ok ? ok++ : fail++;
+      } catch(e) { fail++; }
+    }
+    if (ok)   toast(`${ok} project${ok > 1 ? "s" : ""} assigned`);
+    if (fail) toast(`${fail} failed`, true);
+    await _loadModalAssigned();
+    _showPanel("assigned");
+  }
+
+  async function revokeUserProject(jobId) {
+    if (!_modalUserId) return;
+    try {
+      const r = await fetch(`${USERS_API}/${encodeURIComponent(_modalUserId)}/projects/${encodeURIComponent(jobId)}`, {
+        method: "DELETE",
+      });
+      const d = await r.json();
+      if (d.ok) { toast("Project access revoked"); await _loadModalAssigned(); }
+      else toast(d.error || "Failed", true);
+    } catch(e) { toast("Request failed", true); }
+  }
+
+  // ── Project Access Overview ──────────────────────────────────────────────────
+  let _paAllRows  = [];
+  let _paSortCol  = "project";   // "project" | "playlist" | "group" | "user"
+  let _paSortDir  = "asc";       // "asc" | "desc"
+  let _paRenaming = null;        // job_id being renamed, or null
+
+  // ── Sort key helpers ─────────────────────────────────────────
+  function _paSortKey(p, col) {
+    if (col === "project")  return (p.name || p.job_id).toLowerCase();
+    if (col === "playlist") return ((p.via_all_users || [])[0] || "").toLowerCase();
+    if (col === "group")    return ((p.via_groups || [])[0]?.group_name || "").toLowerCase();
+    if (col === "user")     return ((p.via_users  || [])[0]?.name || (p.via_users || [])[0]?.email || "").toLowerCase();
+    return "";
+  }
+
+  function _paSort(col) {
+    if (_paSortCol === col) { _paSortDir = _paSortDir === "asc" ? "desc" : "asc"; }
+    else                    { _paSortCol = col; _paSortDir = "asc"; }
+    _paUpdateHeaders();
+    _paApplyFilters();
+  }
+
+  function _paUpdateHeaders() {
+    ["project","playlist","group","user"].forEach(col => {
+      const th = document.getElementById(`pa-th-${col}`);
+      if (!th) return;
+      const arrow = th.querySelector(".pa-sort-arrow");
+      if (arrow) arrow.textContent = _paSortCol === col ? (_paSortDir === "asc" ? " ▲" : " ▼") : " ⇅";
+      th.style.cursor = "pointer";
+      th.style.userSelect = "none";
+      th.style.background = _paSortCol === col ? "rgba(0,0,0,0.04)" : "";
+    });
+  }
+
+  // ── Load ─────────────────────────────────────────────────────
+  async function loadProjectAccess() {
+    const tbody = document.getElementById("pa-tbody");
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--subtle);padding:48px;font-size:13px;">Loading…</td></tr>';
+    document.getElementById("pa-summary-line").textContent = "Loading…";
+    try {
+      const res  = await fetch(`${API}/projects/access-summary`);
+      const data = await res.json();
+      _paAllRows = data.projects || [];
+      _paClearFilters();
+      _paUpdateHeaders();
+      _paApplyFilters();
+    } catch(e) {
+      tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--err);padding:32px;">${_esc(e.message)}</td></tr>`;
+      document.getElementById("pa-summary-line").textContent = "Failed to load";
+    }
+  }
+
+  function _paClearFilters() {
+    ["pa-f-project","pa-f-playlist","pa-f-group","pa-f-user"].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = "";
+    });
+  }
+
+  function _paApplyFilters() {
+    const fProject  = (document.getElementById("pa-f-project")?.value  || "").toLowerCase().trim();
+    const fPlaylist = (document.getElementById("pa-f-playlist")?.value || "").toLowerCase().trim();
+    const fGroup    = (document.getElementById("pa-f-group")?.value    || "").toLowerCase().trim();
+    const fUser     = (document.getElementById("pa-f-user")?.value     || "").toLowerCase().trim();
+
+    let filtered = _paAllRows.filter(p => {
+      if (fProject && !(p.name || p.job_id).toLowerCase().includes(fProject)) return false;
+      if (fPlaylist) {
+        const names = (p.via_all_users || [])
+          .concat((p.via_groups || []).filter(g => g.via === "playlist").map(g => g.via_name))
+          .concat((p.via_users  || []).filter(u => u.via === "playlist").map(u => u.via_name));
+        if (!names.some(n => (n || "").toLowerCase().includes(fPlaylist))) return false;
+      }
+      if (fGroup && !(p.via_groups || []).some(g => (g.group_name || "").toLowerCase().includes(fGroup))) return false;
+      if (fUser  && !(p.via_users  || []).some(u => (u.name || "").toLowerCase().includes(fUser) || (u.email || "").toLowerCase().includes(fUser))) return false;
+      return true;
+    });
+
+    // Sort
+    filtered.sort((a, b) => {
+      const ka = _paSortKey(a, _paSortCol), kb = _paSortKey(b, _paSortCol);
+      return _paSortDir === "asc" ? ka.localeCompare(kb) : kb.localeCompare(ka);
+    });
+
+    // Active filter tags
+    const activeBar = document.getElementById("pa-active-filters");
+    const tags = [];
+    if (fProject)  tags.push(`<span style="background:#e2e8f0;color:#334155;padding:2px 8px;border-radius:99px;font-size:11px;">Project: <b>${_esc(fProject)}</b></span>`);
+    if (fPlaylist) tags.push(`<span style="background:#dbeafe;color:#1d4ed8;padding:2px 8px;border-radius:99px;font-size:11px;">Playlist: <b>${_esc(fPlaylist)}</b></span>`);
+    if (fGroup)    tags.push(`<span style="background:#dcfce7;color:#15803d;padding:2px 8px;border-radius:99px;font-size:11px;">Group: <b>${_esc(fGroup)}</b></span>`);
+    if (fUser)     tags.push(`<span style="background:#f3e8ff;color:#7e22ce;padding:2px 8px;border-radius:99px;font-size:11px;">User: <b>${_esc(fUser)}</b></span>`);
+    if (tags.length) {
+      activeBar.style.display = "flex";
+      activeBar.innerHTML = '<span style="font-weight:600;color:#475569;">Active filters:</span> ' + tags.join(" ")
+        + `<button onclick="_paClearFilters();_paApplyFilters();" style="margin-left:auto;background:none;border:none;color:#ef4444;cursor:pointer;font-size:12px;padding:0 4px;">✕ Clear all</button>`;
+    } else {
+      activeBar.style.display = "none";
+      activeBar.innerHTML = "";
+    }
+
+    _paRenderRows(filtered);
+
+    const total = _paAllRows.length, shown = filtered.length;
+    const summaryEl = document.getElementById("pa-summary-line");
+    if (summaryEl) summaryEl.textContent = tags.length ? `Showing ${shown} of ${total} projects` : `${total} project${total !== 1 ? "s" : ""} total`;
+    const footer = document.getElementById("pa-footer-bar");
+    if (footer) { footer.style.display = "block"; footer.textContent = `${shown} project${shown !== 1 ? "s" : ""} shown`; }
+  }
+
+  // ── Render rows ───────────────────────────────────────────────
+  function _paRenderRows(rows) {
+    const tbody = document.getElementById("pa-tbody");
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--subtle);padding:48px;font-size:13px;">No projects match the current filters.</td></tr>';
+      return;
+    }
+
+    // Build DOM directly so rename inputs work cleanly
+    tbody.innerHTML = "";
+    rows.forEach((p, idx) => {
+      const tr = document.createElement("tr");
+      tr.style.cssText = `background:${idx % 2 ? "#fafafa" : "#fff"};border-bottom:1px solid var(--border);`;
+
+      // ── Project cell ──────────────────────────────────────────
+      const tdProj = document.createElement("td");
+      tdProj.style.cssText = "padding:10px 16px;vertical-align:middle;border-right:1px solid var(--border);";
+
+      const statusColor = p.status === "completed" ? "#22c55e" : p.status === "running" ? "#f59e0b" : "#94a3b8";
+      const nameWrap = document.createElement("div");
+      nameWrap.style.cssText = "display:flex;align-items:center;gap:7px;";
+
+      const dot = document.createElement("span");
+      dot.style.cssText = `width:8px;height:8px;border-radius:50%;background:${statusColor};flex-shrink:0;`;
+      nameWrap.appendChild(dot);
+
+      if (_paRenaming === p.job_id) {
+        // Inline rename input
+        const inp = document.createElement("input");
+        inp.type = "text";
+        inp.value = p.name || "";
+        inp.style.cssText = "flex:1;font-size:13px;font-weight:600;padding:3px 7px;border:1.5px solid #3b82f6;border-radius:6px;outline:none;";
+        inp.addEventListener("keydown", async e => {
+          if (e.key === "Enter") { e.preventDefault(); await _paCommitRename(p.job_id, inp.value.trim()); }
+          if (e.key === "Escape") { _paRenaming = null; _paApplyFilters(); }
+        });
+        inp.addEventListener("blur", async () => { await _paCommitRename(p.job_id, inp.value.trim()); });
+        nameWrap.appendChild(inp);
+        requestAnimationFrame(() => { inp.focus(); inp.select(); });
+
+        const cancelBtn = document.createElement("button");
+        cancelBtn.textContent = "✕";
+        cancelBtn.title = "Cancel";
+        cancelBtn.style.cssText = "background:none;border:none;cursor:pointer;color:#94a3b8;font-size:13px;padding:0 2px;";
+        cancelBtn.addEventListener("mousedown", e => { e.preventDefault(); _paRenaming = null; _paApplyFilters(); });
+        nameWrap.appendChild(cancelBtn);
+      } else {
+        const nameSpan = document.createElement("span");
+        nameSpan.textContent = p.name || p.job_id;
+        nameSpan.style.cssText = "font-size:13px;font-weight:600;color:#0f172a;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+        nameWrap.appendChild(nameSpan);
+
+        const editBtn = document.createElement("button");
+        editBtn.title = "Rename project";
+        editBtn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 1 1 3 3L7 19l-4 1 1-4Z"/></svg>`;
+        editBtn.style.cssText = "background:none;border:none;cursor:pointer;color:#94a3b8;padding:2px 4px;border-radius:4px;display:none;flex-shrink:0;";
+        editBtn.addEventListener("click", () => { _paRenaming = p.job_id; _paApplyFilters(); });
+        nameWrap.appendChild(editBtn);
+
+        tr.addEventListener("mouseenter", () => { editBtn.style.display = "inline-flex"; });
+        tr.addEventListener("mouseleave", () => { editBtn.style.display = "none"; });
+        nameSpan.addEventListener("dblclick", () => { _paRenaming = p.job_id; _paApplyFilters(); });
+        nameSpan.title = "Double-click to rename";
+      }
+
+      tdProj.appendChild(nameWrap);
+      const jobIdDiv = document.createElement("div");
+      jobIdDiv.textContent = p.job_id;
+      jobIdDiv.style.cssText = "font-size:10px;color:#94a3b8;margin-top:2px;padding-left:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+      tdProj.appendChild(jobIdDiv);
+      tr.appendChild(tdProj);
+
+      // ── Badge columns ─────────────────────────────────────────
+      const mkTd = (html, last) => {
+        const td = document.createElement("td");
+        td.style.cssText = `padding:10px 16px;vertical-align:top;${last ? "" : "border-right:1px solid var(--border);"}`;
+        td.innerHTML = html || `<span style="color:#cbd5e1;font-size:12px;">—</span>`;
+        return td;
+      };
+
+      const allHtml = (p.via_all_users || []).map(pl =>
+        `<span class="access-badge global">🌐 ${_esc(pl)}</span>`).join("") || "";
+      const grpHtml = (p.via_groups || []).map(g =>
+        g.via === "playlist"
+          ? `<span class="access-badge group" title="Via playlist: ${_esc(g.via_name)}">👥 ${_esc(g.group_name)}<span style="opacity:.6;font-size:10px;"> ↳ ${_esc(g.via_name)}</span></span>`
+          : `<span class="access-badge group" title="Direct">👥 ${_esc(g.group_name)}</span>`).join("") || "";
+      const usrHtml = (p.via_users || []).map(u =>
+        u.via === "playlist"
+          ? `<span class="access-badge user" title="${_esc(u.email)} — via playlist: ${_esc(u.via_name)}">👤 ${_esc(u.name || u.email)}<span style="opacity:.6;font-size:10px;"> ↳ ${_esc(u.via_name)}</span></span>`
+          : `<span class="access-badge user" title="${_esc(u.email)} — direct">👤 ${_esc(u.name || u.email)}</span>`).join("") || "";
+
+      tr.appendChild(mkTd(allHtml));
+      tr.appendChild(mkTd(grpHtml));
+      tr.appendChild(mkTd(usrHtml, true));
+      tbody.appendChild(tr);
+    });
+  }
+
+  // ── Rename ────────────────────────────────────────────────────
+  async function _paCommitRename(jobId, newName) {
+    _paRenaming = null;
+    if (!newName) { _paApplyFilters(); return; }
+    const row = _paAllRows.find(p => p.job_id === jobId);
+    if (!row || row.name === newName) { _paApplyFilters(); return; }
+    const oldName = row.name;
+    row.name = newName;   // optimistic update
+    _paApplyFilters();
+    try {
+      const res = await fetch(`${API.replace("/admin", "")}/jobs/${encodeURIComponent(jobId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project_name: newName }),
+      });
+      const d = await res.json();
+      if (!d.ok) { row.name = oldName; _paApplyFilters(); toast(d.error || "Rename failed", true); }
+      else toast("Project renamed");
+    } catch(e) { row.name = oldName; _paApplyFilters(); toast("Rename failed", true); }
+  }
+
   // Init
   loadStats();
   loadConfig();
-  loadJobs();
+  // Other tabs load lazily on first click, except Dashboard is active by default
 </script>
 
 </body>
