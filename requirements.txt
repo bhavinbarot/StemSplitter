@@ -25,5 +25,7 @@ Flask>=3.0
 Authlib>=1.3
 requests>=2.31
 librosa>=0.10
+# madmom is installed separately in run_local.sh with --no-build-isolation (requires Cython)
+scikit-learn>=1.3
 essentia-tensorflow
 indic-transliteration>=2.3

@@ -22,7 +22,7 @@ from typing import Optional
 from urllib.parse import urlparse
 
 from authlib.integrations.flask_client import OAuth
-from flask import Flask, abort, jsonify, redirect, render_template, request, send_file, session, url_for
+from flask import Flask, abort, jsonify, make_response, redirect, render_template, request, send_file, session, url_for
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -34,6 +34,7 @@ if __package__:
     from . import key_detection as key_detector
     from . import db as app_db
     from . import marker_detection as _marker_detector
+    from . import drum_analysis as _drum_analysis
     if not LITE_MODE:
         from .video_downloader import VideoDownloadError, YtDlpVideoDownloader
         from . import cache as stem_cache
@@ -43,6 +44,7 @@ else:
     import key_detection as key_detector
     import db as app_db
     import marker_detection as _marker_detector
+    import drum_analysis as _drum_analysis
     if not LITE_MODE:
         from video_downloader import VideoDownloadError, YtDlpVideoDownloader
         import cache as stem_cache
@@ -69,12 +71,18 @@ if _APP_PREFIX:
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 JOB_ROOT = Path(os.getenv("WEB_JOBS_ROOT", str(PROJECT_ROOT / "web_jobs")))
 LOGIN_ROOT = Path(os.getenv("WEB_LOGINS_ROOT", str(PROJECT_ROOT / "web_logins")))
+REQUESTS_ROOT = Path(os.getenv("WEB_REQUESTS_ROOT", str(JOB_ROOT.parent / "web_requests")))
+REQUESTS_FILE = REQUESTS_ROOT / "requests.json"
+REQUESTS_COMPLETED_FILE = REQUESTS_ROOT / "requests_completed.json"
+REQUEST_WORKER = os.getenv("REQUEST_WORKER", "false").strip().lower() in {"1", "true", "yes", "on"}
 JOB_ROOT.mkdir(parents=True, exist_ok=True)
+REQUESTS_ROOT.mkdir(parents=True, exist_ok=True)
 if not LITE_MODE:
     stem_cache.init(JOB_ROOT / "stem_cache.db")
 admin_config.init(JOB_ROOT / "admin_config.json")
 _gauth_db_path = Path(os.getenv("APP_DB_PATH", str(JOB_ROOT / "gauth.db")))
 app_db.init(_gauth_db_path)
+app_db.backfill_content_flags(JOB_ROOT)
 
 # Comma-separated Google emails that are always treated as admin.
 # E.g.  ADMIN_EMAILS=me@gmail.com,partner@gmail.com
@@ -85,8 +93,6 @@ _ADMIN_EMAILS: set[str] = {
 }
 JOB_META_NAME = "job.json"
 ALLOWED_SUFFIXES = {".mp3", ".mpe", ".wav", ".flac", ".m4a", ".aac", ".ogg"}
-SHARE_TOKENS_FILE = JOB_ROOT / "share_tokens.json"
-_share_lock = threading.Lock()
 PROGRESS_RE = re.compile(r"(\d{1,3})%\|")
 jobs = {}
 jobs_mtime: dict[str, float] = {}   # job_id -> mtime of job.json when last loaded
@@ -154,8 +160,8 @@ def _migrate_jobs_to_db() -> None:
                 created_at=job.get("created_at") or "",
                 updated_at=job.get("updated_at") or "",
             )
-            # Grant access to all existing users for every legacy project
-            app_db.grant_access_to_all_users(job_id)
+            # Grant legacy projects only to admins/contributors, not plain users
+            app_db.grant_access_to_privileged_users(job_id)
             indexed += 1
         if indexed:
             app.logger.info("db_migration indexed=%d legacy projects", indexed)
@@ -230,26 +236,11 @@ def _reset_stale_jobs() -> None:
 # Run migration and stale-job reset in background so startup is not delayed
 threading.Thread(target=_migrate_jobs_to_db, daemon=True).start()
 threading.Thread(target=_reset_stale_jobs, daemon=True).start()
+# Request worker thread is started after its function is defined (bottom of file)
 
 
 def _resolve_ui_version() -> str:
-    # Prefer an explicit deploy-time value injected by CI/CD or hosting platform.
-    for key in (
-        "UI_VERSION",
-        "APP_DEPLOYED_AT",
-        "RELEASE_VERSION",
-        "RELEASE_CREATED_AT",
-        "SOURCE_VERSION",
-        "GIT_COMMIT",
-    ):
-        value = os.getenv(key, "").strip()
-        if value:
-            return f"v{value}"
-
-    # Fallback: last modified time of app/template files (stable until next code change).
-    tracked_files = [Path(__file__), Path(__file__).parent / "templates" / "index.html"]
-    latest_mtime = max(file_path.stat().st_mtime for file_path in tracked_files if file_path.exists())
-    return datetime.fromtimestamp(latest_mtime).strftime("v%Y.%m.%d-%H%M%S")
+    return os.getenv("UIVersion", "")
 
 
 def _resolve_build_timestamp() -> str:
@@ -302,6 +293,90 @@ def _is_valid_job_id(job_id: str) -> bool:
 def _is_http_url(value: str) -> bool:
     parsed = urlparse((value or "").strip())
     return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+
+# ── web_requests/ NAS helpers ─────────────────────────────────────────────────
+
+_requests_file_lock = threading.Lock()
+
+
+def _read_requests() -> list[dict]:
+    if not REQUESTS_FILE.exists():
+        return []
+    try:
+        with REQUESTS_FILE.open("r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception:
+        return []
+
+
+def _write_requests(reqs: list[dict]) -> None:
+    REQUESTS_ROOT.mkdir(parents=True, exist_ok=True)
+    tmp = REQUESTS_FILE.with_suffix(".json.tmp")
+    with tmp.open("w", encoding="utf-8") as fh:
+        json.dump(reqs, fh, ensure_ascii=True, indent=2)
+    tmp.replace(REQUESTS_FILE)
+
+
+def _read_requests_completed() -> list[dict]:
+    if not REQUESTS_COMPLETED_FILE.exists():
+        return []
+    try:
+        with REQUESTS_COMPLETED_FILE.open("r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception:
+        return []
+
+
+def _write_requests_completed(reqs: list[dict]) -> None:
+    REQUESTS_ROOT.mkdir(parents=True, exist_ok=True)
+    tmp = REQUESTS_COMPLETED_FILE.with_suffix(".json.tmp")
+    with tmp.open("w", encoding="utf-8") as fh:
+        json.dump(reqs, fh, ensure_ascii=True, indent=2)
+    tmp.replace(REQUESTS_COMPLETED_FILE)
+
+
+def _append_request(req: dict) -> None:
+    with _requests_file_lock:
+        reqs = _read_requests()
+        reqs.append(req)
+        _write_requests(reqs)
+
+
+def _update_request(req_id: str, **kwargs) -> None:
+    with _requests_file_lock:
+        reqs = _read_requests()
+        for r in reqs:
+            if r.get("id") == req_id:
+                r.update(kwargs)
+        _write_requests(reqs)
+
+
+def _complete_request(req_id: str) -> None:
+    """Move a request from requests.json to requests_completed.json."""
+    with _requests_file_lock:
+        reqs = _read_requests()
+        done = [r for r in reqs if r.get("id") == req_id]
+        remaining = [r for r in reqs if r.get("id") != req_id]
+        _write_requests(remaining)
+        if done:
+            completed = _read_requests_completed()
+            for r in done:
+                r["completed_at"] = datetime.now().isoformat(timespec="seconds")
+            completed.extend(done)
+            _write_requests_completed(completed)
+
+
+def _get_request_job_ids() -> set[str]:
+    """Return all job_ids that originated from a song request (active + completed)."""
+    ids: set[str] = set()
+    for r in _read_requests() + _read_requests_completed():
+        if r.get("job_id"):
+            ids.add(r["job_id"])
+    return ids
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 
 
 def _is_logged_in() -> bool:
@@ -642,44 +717,40 @@ def _get_stem_path(job: dict, stem_key: str) -> Path | None:
     return None
 
 
-def _load_share_tokens() -> dict:
-    try:
-        with SHARE_TOKENS_FILE.open() as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {}
+_ffmpeg_has_rubberband: bool | None = None
 
 
-def _save_share_tokens(tokens: dict):
-    SHARE_TOKENS_FILE.write_text(json.dumps(tokens, indent=2, ensure_ascii=False))
+def _check_ffmpeg_rubberband() -> bool:
+    global _ffmpeg_has_rubberband
+    if _ffmpeg_has_rubberband is None:
+        try:
+            result = subprocess.run(
+                ["ffmpeg", "-filters"],
+                capture_output=True, text=True, timeout=10
+            )
+            _ffmpeg_has_rubberband = "rubberband" in result.stdout
+        except Exception:
+            _ffmpeg_has_rubberband = False
+    return _ffmpeg_has_rubberband
 
 
-def _get_share_by_token(token: str) -> dict | None:
-    return _load_share_tokens().get(token)
+def _build_pitch_filter(sample_rate: int, pitch_factor: float) -> str:
+    if _check_ffmpeg_rubberband():
+        # rubberband: high-quality phase vocoder — pitch shifts without tempo change
+        return f"rubberband=pitch={pitch_factor:.10f}"
 
-
-def _create_share_token(folder: str, created_by: str) -> str:
-    with _share_lock:
-        tokens = _load_share_tokens()
-        # Re-use existing token for the same folder
-        for t, data in tokens.items():
-            if data.get("folder") == folder:
-                return t
-        token = secrets.token_hex(16)
-        tokens[token] = {
-            "folder": folder,
-            "created_at": datetime.now().isoformat(timespec="seconds"),
-            "created_by": created_by,
-        }
-        _save_share_tokens(tokens)
-        return token
-
-
-def _revoke_share_token(token: str):
-    with _share_lock:
-        tokens = _load_share_tokens()
-        tokens.pop(token, None)
-        _save_share_tokens(tokens)
+    # Fallback: asetrate+aresample for pitch, then atempo to restore original duration.
+    # atempo only accepts [0.5, 2.0]; chain two passes for out-of-range values.
+    atempo_factor = 1.0 / pitch_factor
+    if atempo_factor < 0.5:
+        half = math.sqrt(atempo_factor)
+        atempo_chain = f"atempo={half:.10f},atempo={half:.10f}"
+    elif atempo_factor > 2.0:
+        half = math.sqrt(atempo_factor)
+        atempo_chain = f"atempo={half:.10f},atempo={half:.10f}"
+    else:
+        atempo_chain = f"atempo={atempo_factor:.10f}"
+    return f"asetrate={sample_rate}*{pitch_factor:.10f},aresample={sample_rate},{atempo_chain}"
 
 
 def _ensure_pitch_variant(stem_path: Path, job_id: str, semitones: float) -> Path:
@@ -716,12 +787,7 @@ def _ensure_pitch_variant(stem_path: Path, job_id: str, semitones: float) -> Pat
             sample_rate = 44100
 
     pitch_factor = math.pow(2.0, semitones / 12.0)
-    atempo_factor = 1.0 / pitch_factor
-    ffmpeg_filter = (
-        f"asetrate={sample_rate}*{pitch_factor:.10f},"
-        f"aresample={sample_rate},"
-        f"atempo={atempo_factor:.10f}"
-    )
+    ffmpeg_filter = _build_pitch_filter(sample_rate, pitch_factor)
     command = [
         "ffmpeg",
         "-y",
@@ -745,6 +811,39 @@ def _ensure_pitch_variant(stem_path: Path, job_id: str, semitones: float) -> Pat
     return output_path
 
 
+_pitch_warmup_lock = threading.Lock()
+_pitch_warmup_in_progress: set[str] = set()  # "job_id:stem_name:sign+hundredths"
+
+
+def _pitch_variant_key(job_id: str, stem_path: Path, semitones: float) -> str:
+    sign = "p" if semitones >= 0 else "m"
+    hundredths = int(round(abs(semitones) * 100))
+    return f"{job_id}:{stem_path.stem}:{sign}{hundredths:05d}"
+
+
+def _pitch_variant_cached(stem_path: Path, job_id: str, semitones: float) -> bool:
+    pitch_root = JOB_ROOT / job_id / "pitch_cache"
+    sign = "p" if semitones >= 0 else "m"
+    hundredths = int(round(abs(semitones) * 100))
+    variant_name = f"{stem_path.stem}_pitch_{sign}{hundredths:05d}{stem_path.suffix.lower()}"
+    return (pitch_root / variant_name).exists()
+
+
+def _warmup_single_variant(stem_path: Path, job_id: str, semitones: float) -> None:
+    key = _pitch_variant_key(job_id, stem_path, semitones)
+    with _pitch_warmup_lock:
+        if key in _pitch_warmup_in_progress:
+            return
+        _pitch_warmup_in_progress.add(key)
+    try:
+        _ensure_pitch_variant(stem_path, job_id, semitones)
+    except Exception:
+        pass
+    finally:
+        with _pitch_warmup_lock:
+            _pitch_warmup_in_progress.discard(key)
+
+
 def _resolve_stem_paths(job: dict) -> dict[str, Path]:
     stem_files = job.get("stem_files", {})
     if not isinstance(stem_files, dict):
@@ -763,7 +862,9 @@ def _resolve_stem_paths(job: dict) -> dict[str, Path]:
 @login_required
 def index():
     ui_version = _resolve_ui_version()
-    return render_template("index.html", ui_version=ui_version, compute_device=COMPUTE_DEVICE, current_user=session.get("user"), share_token=None, share_folder=None, lite_mode=LITE_MODE, app_prefix=_APP_PREFIX, is_admin=_is_admin(), is_contributor=_is_contributor())
+    resp = make_response(render_template("index.html", ui_version=ui_version, compute_device=COMPUTE_DEVICE, current_user=session.get("user"), lite_mode=LITE_MODE, app_prefix=_APP_PREFIX, is_admin=_is_admin(), is_contributor=_is_contributor()))
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return resp
 
 
 @app.get("/login")
@@ -1040,12 +1141,70 @@ def zoom_out_icon():
     return send_file(icon_path, mimetype="image/png")
 
 
+# ── Analytics endpoints ───────────────────────────────────────────────────────
+
+@app.post("/api/analytics/ping")
+def analytics_ping():
+    """Heartbeat — called every 60 s while the user has the app open."""
+    user = _current_user_db()
+    if not user:
+        return jsonify({"ok": False}), 401
+    session_key = request.json.get("session_key") if request.is_json else None
+    if not session_key:
+        return jsonify({"ok": False, "error": "missing session_key"}), 400
+    app_db.analytics_upsert_session(session_key, user["id"])
+    return jsonify({"ok": True})
+
+
+@app.post("/api/analytics/play")
+def analytics_play():
+    """Record a play event when the user stops/pauses or leaves."""
+    user = _current_user_db()
+    if not user:
+        return jsonify({"ok": False}), 401
+    data = request.get_json(silent=True) or {}
+    project_id = (data.get("project_id") or "").strip()
+    project_name = (data.get("project_name") or "").strip()
+    duration = float(data.get("duration_seconds") or 0)
+    if not project_id or duration < 1:
+        return jsonify({"ok": False}), 400
+    app_db.analytics_record_play(user["id"], project_id, project_name, duration)
+    return jsonify({"ok": True})
+
+
+@app.get("/api/admin/analytics")
+@admin_required
+def admin_analytics():
+    try:
+        days = int(request.args.get("days", 30))
+        if days < 0:
+            days = 0
+    except (TypeError, ValueError):
+        days = 30
+    return jsonify(app_db.analytics_get_summary(days=days))
+
+
 @app.get("/ui-icon/brand")
 def brand_icon():
     icon_path = Path(__file__).parent / "templates" / "StemSplitter.png"
     if not icon_path.exists():
         abort(404)
     return send_file(icon_path, mimetype="image/png")
+
+
+@app.get("/manifest.json")
+def pwa_manifest():
+    path = Path(__file__).parent / "static" / "manifest.json"
+    return send_file(path, mimetype="application/manifest+json")
+
+
+@app.get("/sw.js")
+def pwa_service_worker():
+    path = Path(__file__).parent / "static" / "sw.js"
+    resp = make_response(send_file(path, mimetype="application/javascript"))
+    resp.headers["Service-Worker-Allowed"] = "/"
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
 
 
 def _sync_job_to_db(job_id: str, job: dict) -> None:
@@ -1433,14 +1592,29 @@ def _normalize_lyrics(payload: list) -> list:
         lyric_type = str(item.get("type", "lead")).strip().lower()
         if lyric_type not in _LYRIC_TYPES:
             lyric_type = "lead"
+        # Optional per-line styling
+        raw_color = str(item.get("color", "") or "").strip()
+        color = raw_color if re.match(r"^#[0-9a-fA-F]{3,8}$", raw_color) else ""
+        raw_style = str(item.get("style", "normal") or "normal").strip().lower()
+        style = raw_style if raw_style in ("normal", "bold", "italic", "bold-italic") else "normal"
         result.append({
             "id": str(item.get("id") or uuid.uuid4().hex),
             "text": text,
             "text_alt": text_alt,
             "time": time_val,
             "type": lyric_type,
+            "color": color,
+            "style": style,
         })
     return result
+
+
+def _read_song_lyrics_text(job_id: str) -> str:
+    lyrics_path = _job_dir(job_id) / "lyrics.txt"
+    try:
+        return lyrics_path.read_text(encoding="utf-8") if lyrics_path.exists() else ""
+    except OSError:
+        return ""
 
 
 def _normalize_project_title(value: str) -> str:
@@ -1798,6 +1972,7 @@ def bulk_split():
     urls = data.get("urls", [])
     separation_mode = data.get("separation_mode", "full")
     output_format = data.get("output_format", "mp3")
+    playlist_name = str(data.get("playlist_name", "") or "").strip()
     if not isinstance(urls, list) or not urls:
         return jsonify({"ok": False, "error": "Provide a list of URLs."}), 400
     if separation_mode not in {"full", "vocals"}:
@@ -1814,18 +1989,71 @@ def bulk_split():
         if not _is_http_url(url):
             job_ids.append({"url": url, "ok": False, "error": "Invalid URL"})
             continue
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        job_id = f"{timestamp}_{uuid.uuid4().hex}"
-        job_dir = JOB_ROOT / job_id
-        JOB_ROOT.mkdir(parents=True, exist_ok=True)
-        job_dir.mkdir(parents=True, exist_ok=True)
         options = {
             "separation_mode": separation_mode,
             "output_format": output_format,
             "quality_level": 50,
         }
+        # Cache check: same video ID + settings already split → reuse the existing job
+        video_id = stem_cache.extract_video_id(url)
+        if video_id:
+            model = _quality_profile(options["quality_level"])["model"]
+            cache_key = stem_cache.make_cache_key(video_id, model, separation_mode, output_format)
+            cached_job_id = stem_cache.lookup(cache_key)
+            if cached_job_id:
+                cached_meta = JOB_ROOT / cached_job_id / JOB_META_NAME
+                if cached_meta.exists():
+                    app.logger.info("bulk_cache_hit job_id=%s video_id=%s", cached_job_id, video_id)
+                    job_ids.append({"url": url, "ok": True, "job_id": cached_job_id, "cached": True})
+                    continue
+                stem_cache.invalidate(cache_key)
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        job_id = f"{timestamp}_{uuid.uuid4().hex}"
+        job_dir = JOB_ROOT / job_id
+        JOB_ROOT.mkdir(parents=True, exist_ok=True)
+        job_dir.mkdir(parents=True, exist_ok=True)
+        now_iso = datetime.now().isoformat(timespec="seconds")
+        creator_id = _current_user_id()
+        initial_job = {
+            "job_id": job_id,
+            "status": "queued",
+            "progress": 0,
+            "message": "Queued. Waiting for earlier URLs to finish.",
+            "stems": {},
+            "stem_files": {},
+            "stem_urls": {},
+            "stem_download_urls": {},
+            "stem_root": "",
+            "zip_file": "",
+            "log_file": "",
+            "download_url": "",
+            "source_file": "",
+            "source_download_url": "",
+            "source_url": url,
+            "output_format": output_format,
+            "separation_mode": separation_mode,
+            "job_type": "split",
+            "project_name": "",
+            "folder": "",
+            "mixer_state": {},
+            "created_at": now_iso,
+            "updated_at": now_iso,
+            "bpm": None,
+            "bpm_segments": [],
+            "key": None,
+            "key_confidence": 0.0,
+            "thaat": None,
+            "thaat_alt": None,
+            "created_by": creator_id,
+        }
+        with jobs_lock:
+            jobs[job_id] = initial_job
+        _persist_job_snapshot(job_id, initial_job)
         _update_job(job_id, status="queued", progress=0, message="Queued. Waiting for earlier URLs to finish.", job_type="split",
                     separation_mode=separation_mode, output_format=output_format)
+        if AUTH_REQUIRED and creator_id:
+            app_db.grant_access(job_id, creator_id, granted_by=creator_id)
         output_path = job_dir / "output"
         queued_jobs.append((job_id, url, job_dir, output_path, options))
         job_ids.append({"url": url, "ok": True, "job_id": job_id})
@@ -1847,7 +2075,18 @@ def bulk_split():
     if queued_jobs:
         threading.Thread(target=_run_bulk_queue, args=(queued_jobs,), daemon=True).start()
 
-    return jsonify({"ok": True, "jobs": job_ids})
+    # If a playlist name was provided, create the playlist and add all queued jobs to it
+    playlist_id = None
+    if playlist_name:
+        user_id = session.get("user_id")
+        pl = app_db.get_or_create_playlist(playlist_name, owner_id=user_id, created_by=user_id)
+        playlist_id = pl.get("id")
+        if playlist_id:
+            for entry in job_ids:
+                if entry.get("ok"):
+                    app_db.add_project_to_playlist(playlist_id, entry["job_id"], added_by=user_id)
+
+    return jsonify({"ok": True, "jobs": job_ids, "playlist_id": playlist_id})
 
 
 @app.get("/api/v1/cookie/check")
@@ -2216,6 +2455,7 @@ def job_status(job_id: str):
             "bpm_analyse_stage": normalized.get("bpm_analyse_stage"),
             "bpm_analyse_progress": normalized.get("bpm_analyse_progress"),
             "lyrics": normalized.get("lyrics", []),
+            "song_lyrics_text": _read_song_lyrics_text(job_id),
             "is_admin_view": _is_admin() or not AUTH_REQUIRED,
         }
     )
@@ -2264,8 +2504,30 @@ def save_job_metadata(job_id: str):
         folder=job.get("folder") or "",
         updated_at=datetime.now().isoformat(timespec="seconds"),
     )
+    has_karaoke = any(
+        l.get("time") is not None and (l.get("text") or l.get("text_alt") or "").strip()
+        for l in lyrics
+    )
+    app_db.update_project_content_flags(job_id, has_karaoke=has_karaoke)
     return jsonify({"ok": True, "mixer_state": mixer_state, "lyrics": lyrics,
                     "saved_as": "canonical"})
+
+
+@app.post("/api/v1/jobs/<job_id>/song-lyrics")
+@login_required
+def save_song_lyrics(job_id: str):
+    if not _is_valid_job_id(job_id):
+        abort(404)
+    if not _get_job(job_id):
+        abort(404)
+    if AUTH_REQUIRED and not _can_edit_content():
+        abort(403)
+    payload = request.get_json(silent=True) or {}
+    lyrics_text = str(payload.get("lyrics_text", "") or "").strip()
+    lyrics_path = _job_dir(job_id) / "lyrics.txt"
+    lyrics_path.write_text(lyrics_text, encoding="utf-8")
+    app_db.update_project_content_flags(job_id, has_song_lyrics=bool(lyrics_text))
+    return jsonify({"ok": True})
 
 
 @app.patch("/api/v1/jobs/<job_id>")
@@ -2358,20 +2620,6 @@ def auto_detect_markers(job_id: str):
         shutil.rmtree(str(local_tmp), ignore_errors=True)
 
     return jsonify({"ok": True, "markers": suggested})
-
-
-@app.patch("/api/v1/jobs/<job_id>/folder")
-@login_required
-def set_job_folder(job_id: str):
-    """Assign or clear the logical folder for a project."""
-    if not _is_valid_job_id(job_id):
-        abort(404)
-    if not _get_job(job_id):
-        abort(404)
-    payload = request.get_json(silent=True) or {}
-    folder = str(payload.get("folder", "")).strip()[:100]
-    _update_job(job_id, folder=folder)
-    return jsonify({"ok": True, "job_id": job_id, "folder": folder})
 
 
 @app.delete("/api/v1/jobs/<job_id>")
@@ -2486,6 +2734,14 @@ def _run_analyse_job(job_id: str):
         )
         app.logger.info("analyse_job done job_id=%s bpm=%s key=%s",
                         job_id, bpm_result.get("bpm"), key_result.get("label"))
+
+        # Drum pattern analysis — runs in same background thread, after BPM/key
+        if drums_path.exists():
+            try:
+                _drum_analysis.analyze(drums_path, _job_dir(job_id))
+            except Exception as drum_exc:
+                app.logger.exception("drum_analysis failed job_id=%s: %s", job_id, drum_exc)
+
     except Exception as exc:
         app.logger.exception("analyse_job failed job_id=%s: %s", job_id, exc)
         _update_job(job_id, bpm_analyse_status="failed", bpm_analyse_stage="error", bpm_analyse_progress=100)
@@ -2508,6 +2764,86 @@ def analyse_job(job_id: str):
     _update_job(job_id, bpm_analyse_status="running", bpm_analyse_stage="queued", bpm_analyse_progress=5)
     threading.Thread(target=_run_analyse_job, args=(job_id,), daemon=True).start()
     return jsonify({"ok": True, "job_id": job_id, "status": "started"})
+
+
+@app.get("/api/v1/jobs/<job_id>/drums/analysis")
+@login_required
+def get_drum_analysis(job_id: str):
+    """Return the pre-computed drum analysis (beat grid, features, pattern names)."""
+    if not _is_valid_job_id(job_id):
+        abort(404)
+    job = _get_job(job_id)
+    if not job:
+        abort(404)
+    if not _has_job_access(job_id):
+        abort(403)
+    data = _drum_analysis.load(_job_dir(job_id))
+    if not data:
+        return jsonify({"status": "pending"})
+    # Strip heavy feature vectors from the response (only needed for clustering)
+    slim = {k: v for k, v in data.items() if k != "features"}
+    return jsonify(slim)
+
+
+@app.post("/api/v1/jobs/<job_id>/drums/cluster")
+@login_required
+def cluster_drum_patterns(job_id: str):
+    """Re-cluster drum patterns with a new similarity threshold (no audio I/O)."""
+    if not _is_valid_job_id(job_id):
+        abort(404)
+    job = _get_job(job_id)
+    if not job:
+        abort(404)
+    if not _has_job_access(job_id):
+        abort(403)
+    body = request.get_json(silent=True) or {}
+    try:
+        threshold = float(body.get("threshold", 0.4))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "threshold must be a number"}), 400
+    threshold = max(0.01, min(1.99, threshold))
+    result = _drum_analysis.cluster(_job_dir(job_id), threshold)
+    return jsonify(result)
+
+
+@app.patch("/api/v1/jobs/<job_id>/drums/patterns")
+@login_required
+def update_drum_pattern_names(job_id: str):
+    """Persist user-given names for drum patterns (e.g. A → Verse, B → Chorus)."""
+    if not _is_valid_job_id(job_id):
+        abort(404)
+    job = _get_job(job_id)
+    if not job:
+        abort(404)
+    if not _has_job_access(job_id):
+        abort(403)
+    body = request.get_json(silent=True) or {}
+    names = body.get("names", {})
+    if not isinstance(names, dict):
+        return jsonify({"ok": False, "error": "names must be an object"}), 400
+    _drum_analysis.save_pattern_names(_job_dir(job_id), names)
+    return jsonify({"ok": True})
+
+
+def _lazy_sync_request_projects(project_dicts: list[dict]) -> None:
+    """For any requested project whose stems are now on NAS, sync the DB once."""
+    request_ids = _get_request_job_ids()
+    if not request_ids:
+        return
+    for p in project_dicts:
+        if p.get("job_id") not in request_ids:
+            continue
+        if p.get("stem_count", 0) > 0 or p.get("status") == "completed":
+            continue
+        job = _get_job(p["job_id"])
+        if job and job.get("status") == "completed":
+            try:
+                _sync_job_to_db(p["job_id"], job)
+                p["status"] = "completed"
+                p["stem_count"] = len(job.get("stem_files") or {})
+                p["name"] = job.get("project_name") or p["name"]
+            except Exception:
+                app.logger.exception("lazy_sync failed job_id=%s", p["job_id"])
 
 
 @app.get("/api/v1/projects")
@@ -2535,19 +2871,40 @@ def list_projects():
                 live_progress = jobs[job_id].get("progress")
         playlists = app_db.list_project_playlists(job_id)
         result.append({
-            "job_id":     job_id,
-            "name":       p["name"],
-            "updated_at": p["updated_at"],
-            "stem_count": p["stem_count"],
-            "folder":     p["folder"],
-            "status":     p["status"],
-            "progress":   live_progress if live_progress is not None else (100 if p["status"] == "completed" else 0),
-            "source_url": p["source_url"],
-            "playlists":  [{"id": pl["id"], "name": pl["name"], "is_shared": bool(pl["is_shared"])} for pl in playlists],
+            "job_id":          job_id,
+            "name":            p["name"],
+            "updated_at":      p["updated_at"],
+            "stem_count":      p["stem_count"],
+            "folder":          p["folder"],
+            "status":          p["status"],
+            "progress":        live_progress if live_progress is not None else (100 if p["status"] == "completed" else 0),
+            "source_url":      p["source_url"],
+            "playlists":       [{"id": pl["id"], "name": pl["name"], "is_shared": bool(pl["is_shared"])} for pl in playlists],
+            "has_song_lyrics": bool(p["has_song_lyrics"]),
+            "has_karaoke":     bool(p["has_karaoke"]),
         })
 
+    _lazy_sync_request_projects(result)
     return jsonify({"ok": True, "projects": result, "total": total,
                     "limit": limit, "offset": offset})
+
+
+@app.get("/api/v1/projects/index")
+@login_required
+def project_index_endpoint():
+    """Lightweight full-project index for instant client-side search.
+
+    Returns ALL accessible projects with minimal fields in exactly 2 DB queries
+    (no N+1 per-project playlist lookup). No pagination — intended for the
+    frontend to hold in memory and filter client-side.
+    """
+    is_admin = _is_admin() or not AUTH_REQUIRED
+    user_id = None if is_admin else _current_user_id()
+    if not is_admin and not user_id:
+        return jsonify({"ok": True, "projects": []})
+    projects = app_db.get_project_index(is_admin=is_admin, user_id=user_id)
+    _lazy_sync_request_projects(projects)
+    return jsonify({"ok": True, "projects": projects})
 
 
 @app.get("/api/v1/projects/search-url")
@@ -2745,6 +3102,74 @@ def import_project():
         return jsonify({"ok": False, "error": "Import failed. File may be corrupt."}), 500
 
 
+# ── Song request endpoints ────────────────────────────────────────────────────
+
+@app.post("/api/v1/requests")
+@login_required
+def submit_song_request():
+    """Normal users submit a YouTube URL for the admin to process."""
+    if _is_admin():
+        return jsonify({"ok": False, "error": "Admins use the split form directly."}), 400
+    data = request.get_json(silent=True) or {}
+    url = str(data.get("url", "")).strip()
+    title = str(data.get("title", "")).strip()
+    if not url or not _is_http_url(url):
+        return jsonify({"ok": False, "error": "A valid YouTube URL is required."}), 400
+
+    user = session.get("user", {})
+    user_id = _current_user_id()
+    username = (user.get("name") or user.get("email") or "").strip()
+
+    # Assign job_id now so production DB and NAS file share the same key
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    job_id = f"{timestamp}_{uuid.uuid4().hex}"
+    now_iso = datetime.now().isoformat(timespec="seconds")
+
+    # Create project row immediately so user sees it as "Queued" in their sidebar
+    app_db.upsert_project(
+        job_id=job_id,
+        name=title or "Requested song",
+        source_url=url,
+        status="queued",
+        created_by=user_id,
+        created_at=now_iso,
+        updated_at=now_iso,
+    )
+    if user_id:
+        app_db.grant_access(job_id, user_id, granted_by=user_id)
+
+    req = {
+        "id": f"req_{uuid.uuid4().hex[:12]}",
+        "job_id": job_id,
+        "user_id": user_id or "",
+        "username": username,
+        "email": user.get("email", ""),
+        "youtube_url": url,
+        "title": title,
+        "requested_at": now_iso,
+        "status": "pending",
+        "claimed_at": None,
+    }
+    _append_request(req)
+    app.logger.info("song_request job_id=%s user=%s url=%s", job_id, user_id, url)
+    return jsonify({"ok": True, "job_id": job_id, "request_id": req["id"]})
+
+
+@app.get("/api/v1/requests")
+@login_required
+def list_song_requests():
+    """Admin: return active + completed request lists from NAS."""
+    if not _is_admin():
+        abort(403)
+    return jsonify({
+        "ok": True,
+        "pending": _read_requests(),
+        "completed": _read_requests_completed(),
+    })
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+
 @app.get("/api/v1/jobs/<job_id>/source")
 @app.get("/download-source/<job_id>")
 @login_required
@@ -2805,6 +3230,89 @@ def stream_stem(job_id: str, stem_key: str):
     except RuntimeError:
         abort(500)
     return send_file(variant_path)
+
+
+@app.post("/api/v1/jobs/<job_id>/pitch-warmup")
+@login_required
+def pitch_warmup(job_id: str):
+    """Start background generation of pitch variants for a neighbourhood of semitone values."""
+    if not _is_valid_job_id(job_id):
+        abort(404)
+    if not _has_job_access(job_id):
+        abort(403)
+    if LITE_MODE:
+        return jsonify({"ok": True, "queued": 0})
+    job = _get_job(job_id)
+    if not job:
+        abort(404)
+
+    payload = request.get_json(silent=True) or {}
+    raw_semitones = payload.get("semitones", [])
+    if not isinstance(raw_semitones, list):
+        abort(400)
+
+    stem_paths = _resolve_stem_paths(job)
+    if not stem_paths:
+        return jsonify({"ok": True, "queued": 0})
+
+    queued = 0
+    for raw_s in raw_semitones:
+        try:
+            semitones = round(float(raw_s), 4)
+        except (TypeError, ValueError):
+            continue
+        if semitones < -24 or semitones > 24:
+            continue
+        if abs(semitones) < 0.005:
+            continue
+        for stem_path in stem_paths.values():
+            if _pitch_variant_cached(stem_path, job_id, semitones):
+                continue
+            key = _pitch_variant_key(job_id, stem_path, semitones)
+            with _pitch_warmup_lock:
+                if key in _pitch_warmup_in_progress:
+                    continue
+            t = threading.Thread(
+                target=_warmup_single_variant,
+                args=(stem_path, job_id, semitones),
+                daemon=True,
+            )
+            t.start()
+            queued += 1
+
+    return jsonify({"ok": True, "queued": queued})
+
+
+@app.get("/api/v1/jobs/<job_id>/pitch-cache-status")
+@login_required
+def pitch_cache_status(job_id: str):
+    """Return which of the requested semitone values are already cached on disk."""
+    if not _is_valid_job_id(job_id):
+        abort(404)
+    if not _has_job_access(job_id):
+        abort(403)
+    job = _get_job(job_id)
+    if not job:
+        abort(404)
+
+    raw = request.args.get("semitones", "")
+    try:
+        requested = [round(float(x), 4) for x in raw.split(",") if x.strip()]
+    except ValueError:
+        abort(400)
+
+    stem_paths = _resolve_stem_paths(job)
+    ready: list[float] = []
+    pending: list[float] = []
+
+    for semitones in requested:
+        all_cached = all(
+            _pitch_variant_cached(p, job_id, semitones) or abs(semitones) < 0.005
+            for p in stem_paths.values()
+        )
+        (ready if all_cached else pending).append(semitones)
+
+    return jsonify({"ok": True, "ready": ready, "pending": pending})
 
 
 @app.get("/api/v1/jobs/<job_id>/stems/<stem_key>/download")
@@ -3330,7 +3838,9 @@ def reset_user_overlay(job_id: str):
 def admin_page():
     if AUTH_REQUIRED and not _is_admin():
         return redirect(url_for("index"))
-    return render_template("admin.html", current_user=session.get("user"), app_prefix=_APP_PREFIX)
+    resp = make_response(render_template("admin.html", current_user=session.get("user"), app_prefix=_APP_PREFIX, ui_version=_resolve_ui_version()))
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return resp
 
 
 @app.get("/api/v1/admin/config")
@@ -3580,132 +4090,6 @@ def admin_job_log(job_id: str):
     except Exception as exc:
         return jsonify({"log": f"Error reading log: {exc}"})
     return jsonify({"log": content})
-
-
-# ── Shareable folder routes ────────────────────────────────────────────────
-
-@app.post("/api/v1/folders/share")
-@login_required
-def create_folder_share():
-    payload = request.get_json(silent=True) or {}
-    folder = str(payload.get("folder", "")).strip()[:100]
-    if not folder:
-        return jsonify({"ok": False, "error": "folder is required"}), 400
-    created_by = (session.get("user") or {}).get("email", "anonymous")
-    token = _create_share_token(folder, created_by)
-    share_url = url_for("shared_folder_view", token=token, _external=True)
-    return jsonify({"ok": True, "token": token, "share_url": share_url})
-
-
-@app.delete("/api/v1/share/<token>")
-@login_required
-def revoke_folder_share(token: str):
-    _revoke_share_token(token)
-    return jsonify({"ok": True})
-
-
-@app.get("/s/<token>")
-def shared_folder_view(token: str):
-    share = _get_share_by_token(token)
-    if not share:
-        abort(404)
-    ui_version = _resolve_ui_version()
-    return render_template(
-        "index.html",
-        ui_version=ui_version,
-        compute_device=COMPUTE_DEVICE,
-        current_user=None,
-        share_token=token,
-        share_folder=share["folder"],
-        lite_mode=LITE_MODE,
-        app_prefix=_APP_PREFIX,
-    )
-
-
-@app.get("/api/v1/share/<token>")
-def shared_folder_projects(token: str):
-    share = _get_share_by_token(token)
-    if not share:
-        return jsonify({"ok": False, "error": "invalid or expired link"}), 404
-    folder = share["folder"]
-    projects = []
-    for job_dir in sorted(JOB_ROOT.iterdir(), key=lambda d: d.stat().st_mtime, reverse=True):
-        if not job_dir.is_dir():
-            continue
-        job_id = job_dir.name
-        if not _is_valid_job_id(job_id):
-            continue
-        job = _get_job(job_id)
-        if not job:
-            continue
-        if (job.get("folder") or "").strip() != folder:
-            continue
-        stem_files = job.get("stem_files", {})
-        if not stem_files:
-            continue
-        project_name = (job.get("project_name") or "").strip()
-        if not project_name:
-            source_name = (job.get("source_file") or "").strip()
-            project_name = Path(source_name).stem if source_name else f"Project {job_id[:8]}"
-        updated_at = job.get("updated_at") or datetime.fromtimestamp(job_dir.stat().st_mtime).isoformat(timespec="seconds")
-        projects.append({
-            "job_id": job_id,
-            "name": project_name,
-            "updated_at": updated_at,
-            "stem_count": len(stem_files),
-            "folder": folder,
-            # Public share: rewrite stem URLs to the token-scoped public endpoint
-            "stem_urls": {
-                k: url_for("shared_stem_stream", token=token, job_id=job_id, stem_key=k)
-                for k in stem_files
-            },
-        })
-    projects.sort(key=lambda p: p.get("updated_at", ""), reverse=True)
-    return jsonify({"ok": True, "folder": folder, "projects": projects})
-
-
-@app.get("/api/v1/share/<token>/jobs/<job_id>/stems/<stem_key>/stream")
-def shared_stem_stream(token: str, job_id: str, stem_key: str):
-    share = _get_share_by_token(token)
-    if not share:
-        abort(404)
-    if not _is_valid_job_id(job_id) or not STEM_KEY_RE.fullmatch(stem_key):
-        abort(404)
-    job = _get_job(job_id)
-    if not job:
-        abort(404)
-    # Verify the job belongs to the shared folder
-    if (job.get("folder") or "").strip() != share["folder"]:
-        abort(403)
-    stem_path = _get_stem_path(job, stem_key)
-    if not stem_path:
-        abort(404)
-    return send_file(stem_path)
-
-
-# ── /api/v1/share/<token>/jobs/<job_id> — public job metadata ─────────────
-
-@app.get("/api/v1/share/<token>/jobs/<job_id>")
-def shared_job_detail(token: str, job_id: str):
-    share = _get_share_by_token(token)
-    if not share:
-        abort(404)
-    if not _is_valid_job_id(job_id):
-        abort(404)
-    job = _get_job(job_id)
-    if not job:
-        abort(404)
-    if (job.get("folder") or "").strip() != share["folder"]:
-        abort(403)
-    safe = _normalize_job(job_id, job)
-    # Rewrite stem URLs to token-scoped public endpoints
-    stem_files = job.get("stem_files", {})
-    safe["stem_urls"] = {
-        k: url_for("shared_stem_stream", token=token, job_id=job_id, stem_key=k)
-        for k in stem_files
-    }
-    safe["stem_download_urls"] = {}  # no download in read-only share
-    return jsonify({"ok": True, "job": safe})
 
 
 # ── Transliteration ──────────────────────────────────────────────────────────
@@ -4085,6 +4469,93 @@ def admin_import_playlists():
 def admin_project_access_summary():
     data = app_db.get_all_projects_access_summary()
     return jsonify({"ok": True, "projects": data})
+
+
+# ── Local request worker (only runs when REQUEST_WORKER=true) ─────────────────
+
+def _run_request_worker():
+    """Background thread: polls requests.json and processes pending song requests."""
+    app.logger.info("request_worker started")
+    while True:
+        try:
+            _process_pending_requests()
+        except Exception:
+            app.logger.exception("request_worker error")
+        time.sleep(60)
+
+
+def _process_pending_requests():
+    """Claim and process any pending requests from web_requests/requests.json."""
+    with _requests_file_lock:
+        reqs = _read_requests()
+        pending = [r for r in reqs if r.get("status") == "pending"]
+        if not pending:
+            return
+        # Claim all pending requests atomically before spawning threads
+        now_iso = datetime.now().isoformat(timespec="seconds")
+        for r in reqs:
+            if r.get("status") == "pending":
+                r["status"] = "in_progress"
+                r["claimed_at"] = now_iso
+        _write_requests(reqs)
+
+    def _run_one(req: dict):
+        job_id = req["job_id"]
+        url = req["youtube_url"]
+        req_id = req["id"]
+        app.logger.info("request_worker processing req_id=%s job_id=%s", req_id, job_id)
+        try:
+            job_dir = JOB_ROOT / job_id
+            job_dir.mkdir(parents=True, exist_ok=True)
+            output_path = job_dir / "output"
+            options = {"separation_mode": "full", "output_format": "mp3", "quality_level": 50}
+
+            now_iso = datetime.now().isoformat(timespec="seconds")
+            initial_job = {
+                "job_id": job_id,
+                "status": "queued",
+                "progress": 0,
+                "message": "Queued by request worker.",
+                "stems": {}, "stem_files": {}, "stem_urls": {}, "stem_download_urls": {},
+                "stem_root": "", "zip_file": "", "log_file": "",
+                "download_url": "", "source_file": "", "source_download_url": "",
+                "source_url": url,
+                "output_format": "mp3",
+                "separation_mode": "full",
+                "job_type": "split",
+                "project_name": req.get("title", ""),
+                "folder": "",
+                "mixer_state": {},
+                "created_at": now_iso,
+                "updated_at": now_iso,
+                "bpm": None, "bpm_segments": [],
+                "key": None, "key_confidence": 0.0,
+                "thaat": None, "thaat_alt": None,
+                "created_by": req.get("user_id"),
+            }
+            with jobs_lock:
+                jobs[job_id] = initial_job
+            _persist_job_snapshot(job_id, initial_job)
+
+            _run_url_demucs_job(job_id, url, job_dir, output_path, options)
+            _complete_request(req_id)
+            app.logger.info("request_worker completed req_id=%s job_id=%s", req_id, job_id)
+        except Exception:
+            app.logger.exception("request_worker failed req_id=%s job_id=%s", req_id, job_id)
+            _update_request(req_id, status="failed")
+
+    # Process sequentially in a single thread so we don't overload the machine
+    def _run_queue(items):
+        for req in items:
+            _run_one(req)
+
+    threading.Thread(target=_run_queue, args=(pending,), daemon=True).start()
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Start request worker after all functions are defined
+if REQUEST_WORKER:
+    threading.Thread(target=_run_request_worker, daemon=True).start()
 
 
 if __name__ == "__main__":

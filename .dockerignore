@@ -1,8 +1,12 @@
 *
 
 !requirements.txt
+!Dockerfile.nas
+!docker-compose.yml
 !demucs/
 !demucs/**
+!stemsplitter/
+!stemsplitter/**
 
 .git
 .github

@@ -1,0 +1,26 @@
+services:
+  stemsplitter:
+    build:
+      context: .
+      dockerfile: Dockerfile.nas
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      WEB_JOBS_ROOT: /data/web_jobs
+      WEB_REQUESTS_ROOT: /data/web_requests
+      WEB_LOGINS_ROOT: /data/web_logins
+      APP_DB_PATH: /data/web_jobs/gauth.db
+      APP_PREFIX: ""
+      LITE_MODE: "false"
+      PORT: "8080"
+    volumes:
+      - /volume1/mp3_app_storage:/data
+    expose:
+      - "8080"
+    networks:
+      - nas_tunnel
+
+networks:
+  nas_tunnel:
+    external: true

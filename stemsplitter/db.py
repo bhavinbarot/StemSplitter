@@ -17,6 +17,7 @@ user_overlays   — per-user mixer/lyric deltas that don't touch the canonical
 import json
 import sqlite3
 import threading
+import time
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -37,7 +38,7 @@ def init(db_path: Path) -> None:
     _seed_admin()
     _seed_app_settings()
     _reset_auto_shared_playlists()
-    migrate_folders_to_playlists()
+    _migrate_add_content_flags()
 
 
 @contextmanager
@@ -210,6 +211,25 @@ def _create_schema(conn: sqlite3.Connection) -> None:
             FOREIGN KEY (job_id) REFERENCES projects(job_id) ON DELETE CASCADE
         );
 
+        CREATE TABLE IF NOT EXISTS analytics_sessions (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id       TEXT NOT NULL,
+            session_key   TEXT NOT NULL UNIQUE,
+            session_start INTEGER NOT NULL,
+            last_ping     INTEGER NOT NULL,
+            date          TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS analytics_play_events (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id          TEXT NOT NULL,
+            project_id       TEXT NOT NULL,
+            project_name     TEXT NOT NULL DEFAULT '',
+            started_at       INTEGER NOT NULL,
+            duration_seconds REAL NOT NULL DEFAULT 0,
+            date             TEXT NOT NULL
+        );
+
         CREATE INDEX IF NOT EXISTS idx_projects_source_url ON projects(source_url)
             WHERE source_url != '';
         CREATE INDEX IF NOT EXISTS idx_projects_name       ON projects(name);
@@ -225,6 +245,9 @@ def _create_schema(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_user_favorites_user ON user_favorites(user_id);
         CREATE INDEX IF NOT EXISTS idx_pl_access_user      ON playlist_access(user_id);
         CREATE INDEX IF NOT EXISTS idx_pl_grp_access_grp   ON playlist_group_access(group_id);
+        CREATE INDEX IF NOT EXISTS idx_analytics_sess_user ON analytics_sessions(user_id);
+        CREATE INDEX IF NOT EXISTS idx_analytics_play_user ON analytics_play_events(user_id);
+        CREATE INDEX IF NOT EXISTS idx_analytics_play_proj ON analytics_play_events(project_id);
     """)
 
 
@@ -423,6 +446,42 @@ def delete_project(job_id: str) -> None:
         conn.execute("DELETE FROM projects WHERE job_id=?", (job_id,))
 
 
+def _migrate_add_content_flags() -> None:
+    """Add has_song_lyrics / has_karaoke columns to projects if not present."""
+    with _connect() as conn:
+        existing = {row[1] for row in conn.execute("PRAGMA table_info(projects)").fetchall()}
+        if "has_song_lyrics" not in existing:
+            conn.execute(
+                "ALTER TABLE projects ADD COLUMN has_song_lyrics INTEGER NOT NULL DEFAULT 0"
+            )
+        if "has_karaoke" not in existing:
+            conn.execute(
+                "ALTER TABLE projects ADD COLUMN has_karaoke INTEGER NOT NULL DEFAULT 0"
+            )
+
+
+def update_project_content_flags(
+    job_id: str,
+    *,
+    has_song_lyrics: bool | None = None,
+    has_karaoke: bool | None = None,
+) -> None:
+    """Update the content-presence flags for a project."""
+    sets: list[str] = []
+    params: list = []
+    if has_song_lyrics is not None:
+        sets.append("has_song_lyrics=?")
+        params.append(1 if has_song_lyrics else 0)
+    if has_karaoke is not None:
+        sets.append("has_karaoke=?")
+        params.append(1 if has_karaoke else 0)
+    if not sets:
+        return
+    params.append(job_id)
+    with _connect() as conn:
+        conn.execute(f"UPDATE projects SET {', '.join(sets)} WHERE job_id=?", params)
+
+
 def get_project(job_id: str) -> Optional[dict]:
     with _connect() as conn:
         row = conn.execute("SELECT * FROM projects WHERE job_id=?", (job_id,)).fetchone()
@@ -525,6 +584,96 @@ def list_all_projects(
         return [dict(r) for r in rows], total
 
 
+def get_project_index(is_admin: bool, user_id: str | None = None) -> list[dict]:
+    """Return a lightweight index of all accessible projects.
+
+    Uses exactly 2 DB queries regardless of project count (vs the N+1 pattern
+    in list_all_projects / list_projects_for_user).  Returns the minimal fields
+    needed to render the sidebar: job_id, name, folder, updated_at, status,
+    stem_count, source_url, progress, playlists[].
+    """
+    _access_sql = """
+        p.job_id IN (SELECT a.job_id FROM project_access a WHERE a.user_id = :uid)
+        OR p.job_id IN (
+            SELECT pga.job_id FROM project_group_access pga
+            JOIN group_members gm ON gm.group_id = pga.group_id WHERE gm.user_id = :uid
+        )
+        OR p.job_id IN (
+            SELECT pp.job_id FROM playlist_projects pp
+            JOIN playlists pl ON pl.id = pp.playlist_id WHERE pl.is_shared = 1
+        )
+        OR p.job_id IN (
+            SELECT pp.job_id FROM playlist_projects pp
+            JOIN playlist_access pa ON pa.playlist_id = pp.playlist_id WHERE pa.user_id = :uid
+        )
+        OR p.job_id IN (
+            SELECT pp.job_id FROM playlist_projects pp
+            JOIN playlist_group_access pga ON pga.playlist_id = pp.playlist_id
+            JOIN group_members gm ON gm.group_id = pga.group_id WHERE gm.user_id = :uid
+        )
+    """
+    with _connect() as conn:
+        if is_admin:
+            rows = conn.execute(
+                """SELECT job_id, name, folder, updated_at, status, stem_count, source_url,
+                          has_song_lyrics, has_karaoke
+                   FROM projects ORDER BY updated_at DESC"""
+            ).fetchall()
+            pl_rows = conn.execute(
+                """SELECT pp.job_id, pl.id, pl.name, pl.is_shared
+                   FROM playlist_projects pp
+                   JOIN playlists pl ON pl.id = pp.playlist_id
+                   ORDER BY pl.name ASC"""
+            ).fetchall()
+        else:
+            if not user_id:
+                return []
+            params: dict = {"uid": user_id}
+            rows = conn.execute(
+                f"""SELECT DISTINCT p.job_id, p.name, p.folder, p.updated_at,
+                           p.status, p.stem_count, p.source_url,
+                           p.has_song_lyrics, p.has_karaoke
+                    FROM projects p WHERE ({_access_sql})
+                    ORDER BY p.updated_at DESC""",
+                params,
+            ).fetchall()
+            pl_rows = conn.execute(
+                f"""SELECT pp.job_id, pl.id, pl.name, pl.is_shared
+                    FROM playlist_projects pp
+                    JOIN playlists pl ON pl.id = pp.playlist_id
+                    WHERE pp.job_id IN (
+                        SELECT DISTINCT p.job_id FROM projects p WHERE ({_access_sql})
+                    )
+                    ORDER BY pl.name ASC""",
+                params,
+            ).fetchall()
+
+    pl_map: dict[str, list] = {}
+    for pr in pl_rows:
+        pl_map.setdefault(pr["job_id"], []).append({
+            "id": pr["id"],
+            "name": pr["name"],
+            "is_shared": bool(pr["is_shared"]),
+        })
+
+    return [
+        {
+            "job_id": r["job_id"],
+            "name": r["name"],
+            "folder": r["folder"],
+            "updated_at": r["updated_at"],
+            "status": r["status"],
+            "stem_count": r["stem_count"] or 0,
+            "source_url": r["source_url"],
+            "progress": 100 if r["status"] == "completed" else 0,
+            "playlists": pl_map.get(r["job_id"], []),
+            "has_song_lyrics": bool(r["has_song_lyrics"]),
+            "has_karaoke": bool(r["has_karaoke"]),
+        }
+        for r in rows
+    ]
+
+
 def find_project_by_url(source_url: str) -> Optional[dict]:
     """Exact match on source_url (for YouTube dedup check)."""
     if not source_url:
@@ -620,6 +769,27 @@ def grant_access_to_all_users(job_id: str, granted_by: Optional[str] = None) -> 
     now = datetime.now().isoformat(timespec="seconds")
     with _connect() as conn:
         users = conn.execute("SELECT id FROM users").fetchall()
+        for u in users:
+            conn.execute(
+                """INSERT OR IGNORE INTO project_access (job_id, user_id, granted_by, granted_at)
+                   VALUES (?,?,?,?)""",
+                (job_id, u["id"], granted_by, now),
+            )
+
+
+def grant_access_to_privileged_users(job_id: str, granted_by: Optional[str] = None) -> None:
+    """Grant access only to admin and contributor users.
+
+    Used during legacy migration so that plain Google users don't automatically
+    inherit projects they never interacted with.  Admins/contributors already see
+    everything via list_all_projects, but the project_access rows are still written
+    so contributor-role users (who go through list_projects_for_user) can see them.
+    """
+    now = datetime.now().isoformat(timespec="seconds")
+    with _connect() as conn:
+        users = conn.execute(
+            "SELECT id FROM users WHERE role IN ('admin', 'contributor')"
+        ).fetchall()
         for u in users:
             conn.execute(
                 """INSERT OR IGNORE INTO project_access (job_id, user_id, granted_by, granted_at)
@@ -845,6 +1015,25 @@ def create_playlist(name: str, owner_id: Optional[str], is_shared: bool, created
             """INSERT INTO playlists (name, owner_id, is_shared, created_by, created_at, updated_at)
                VALUES (?,?,?,?,?,?)""",
             (name, owner_id, 1 if is_shared else 0, created_by, now, now),
+        )
+        row = conn.execute("SELECT * FROM playlists WHERE rowid=last_insert_rowid()").fetchone()
+        return dict(row) if row else {}
+
+
+def get_or_create_playlist(name: str, owner_id: Optional[str], created_by: Optional[str]) -> dict:
+    """Return the existing playlist with this name owned by owner_id, or create one."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM playlists WHERE name=? AND owner_id=?",
+            (name, owner_id),
+        ).fetchone()
+        if row:
+            return dict(row)
+        now = datetime.now().isoformat(timespec="seconds")
+        conn.execute(
+            """INSERT INTO playlists (name, owner_id, is_shared, created_by, created_at, updated_at)
+               VALUES (?,?,0,?,?,?)""",
+            (name, owner_id, created_by, now, now),
         )
         row = conn.execute("SELECT * FROM playlists WHERE rowid=last_insert_rowid()").fetchone()
         return dict(row) if row else {}
@@ -1285,45 +1474,55 @@ def _reset_auto_shared_playlists() -> None:
         )
 
 
-def migrate_folders_to_playlists(created_by: Optional[str] = None) -> int:
+def backfill_content_flags(job_root: Path) -> int:
+    """One-time backfill: scan existing job.json files and set has_song_lyrics /
+    has_karaoke flags for all projects that were created before those columns existed.
+
+    Tracked by a sentinel in app_settings so it runs exactly once.
+    Returns the number of projects updated.
     """
-    One-time migration: convert existing projects.folder values to playlists.
-    Idempotent — only creates a playlist if one with the same name and owner_id=NULL
-    doesn't already exist.  New playlists are created with is_shared=False so the
-    admin must explicitly share them via the playlist share controls.
-    Returns the number of playlists created.
-    """
+    SENTINEL = "migration_content_flags_backfill_done"
     with _connect() as conn:
-        # Get all unique non-empty folder names
-        rows = conn.execute(
-            "SELECT DISTINCT folder FROM projects WHERE folder != '' ORDER BY folder ASC"
-        ).fetchall()
-        folder_names = [r["folder"] for r in rows]
+        if conn.execute("SELECT key FROM app_settings WHERE key=?", (SENTINEL,)).fetchone():
+            return 0
+        rows = conn.execute("SELECT job_id FROM projects").fetchall()
 
-    created = 0
-    for name in folder_names:
-        # Check if a system playlist (owner_id NULL) with this name already exists
-        with _connect() as conn:
-            existing = conn.execute(
-                "SELECT id FROM playlists WHERE name=? AND owner_id IS NULL",
-                (name,),
-            ).fetchone()
-        if existing:
-            playlist_id = existing["id"]
-        else:
-            pl = create_playlist(name=name, owner_id=None, is_shared=False, created_by=created_by)
-            playlist_id = pl["id"]
-            created += 1
+    updated = 0
+    for row in rows:
+        job_id = row["job_id"]
+        meta_path = job_root / job_id / "job.json"
+        if not meta_path.exists():
+            continue
+        try:
+            with open(meta_path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except Exception:
+            continue
 
-        # Add all projects in this folder to the playlist (idempotent)
-        with _connect() as conn:
-            projects = conn.execute(
-                "SELECT job_id FROM projects WHERE folder=?", (name,)
-            ).fetchall()
-        for p in projects:
-            add_project_to_playlist(playlist_id, p["job_id"], added_by=created_by)
+        has_song_lyrics = bool((data.get("song_lyrics") or "").strip())
+        has_karaoke = any(
+            (l.get("text") or l.get("text_alt") or "").strip()
+            for l in (data.get("lyrics") or [])
+            if isinstance(l, dict)
+        )
+        if has_song_lyrics or has_karaoke:
+            update_project_content_flags(
+                job_id,
+                has_song_lyrics=has_song_lyrics,
+                has_karaoke=has_karaoke,
+            )
+            updated += 1
 
-    return created
+    now = datetime.now().isoformat(timespec="seconds")
+    with _connect() as conn:
+        conn.execute(
+            """INSERT OR IGNORE INTO app_settings
+               (key, value, type, label, description, can_be_overridden, updated_at)
+               VALUES (?,?,?,?,?,?,?)""",
+            (SENTINEL, '"1"', "string", "",
+             "Internal migration sentinel — do not edit.", 0, now),
+        )
+    return updated
 
 
 # ─── Export / Import playlists ────────────────────────────────────────────────
@@ -1543,3 +1742,181 @@ def get_all_projects_access_summary() -> list[dict]:
                 "via_users": list((usr_map.get(jid) or {}).values()),
             })
         return result
+
+
+# ─── Analytics ───────────────────────────────────────────────────────────────
+
+def analytics_upsert_session(session_key: str, user_id: str) -> None:
+    """Create a new session row or refresh last_ping for an existing one."""
+    now = int(time.time())
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO analytics_sessions (session_key, user_id, session_start, last_ping, date)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(session_key) DO UPDATE SET last_ping = excluded.last_ping
+            """,
+            (session_key, user_id, now, now, today),
+        )
+
+
+def analytics_record_play(
+    user_id: str,
+    project_id: str,
+    project_name: str,
+    duration_seconds: float,
+) -> None:
+    """Record a single play/listen event for a project."""
+    now = int(time.time())
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO analytics_play_events
+                (user_id, project_id, project_name, started_at, duration_seconds, date)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (user_id, project_id, project_name, now, max(0.0, duration_seconds), today),
+        )
+
+
+def analytics_get_summary(days: int = 30) -> dict:
+    """Return all analytics data needed for the admin dashboard.
+
+    Args:
+        days: Look-back window in days. 0 means all time.
+    """
+    # Build date-filter clause; days is always a safe int from the caller
+    if days > 0:
+        date_clause  = f"AND date >= date('now', '-{int(days)} days')"
+        where_clause = f"WHERE date >= date('now', '-{int(days)} days')"
+    else:
+        date_clause  = ""
+        where_clause = ""
+
+    with _connect() as conn:
+
+        def _fmt_seconds(s) -> str:
+            if s is None:
+                return "0m"
+            s = int(s)
+            h = s // 3600
+            m = (s % 3600) // 60
+            return f"{h}h {m}m" if h else f"{m}m"
+
+        # ── Time spent per user (session duration = last_ping − session_start) ──
+        user_time_rows = conn.execute(
+            f"""
+            SELECT
+                s.user_id,
+                COALESCE(
+                    NULLIF(TRIM(u.name),    ''),
+                    NULLIF(TRIM(lu.name),   ''),
+                    NULLIF(TRIM(lu.username),''),
+                    NULLIF(TRIM(u.email),   ''),
+                    s.user_id
+                ) AS display_name,
+                COALESCE(NULLIF(TRIM(u.email),''), TRIM(lu.username), '') AS email,
+                SUM(s.last_ping - s.session_start)                AS total_seconds,
+                COUNT(DISTINCT s.date)                            AS active_days,
+                MAX(s.last_ping)                                  AS last_seen_ts
+            FROM analytics_sessions s
+            LEFT JOIN users       u  ON s.user_id = u.id
+            LEFT JOIN local_users lu ON s.user_id = ('local:' || lu.id)
+            WHERE 1=1 {date_clause}
+            GROUP BY s.user_id
+            ORDER BY total_seconds DESC
+            """
+        ).fetchall()
+
+        # ── Play events per user ──────────────────────────────────────────────
+        user_play_rows = conn.execute(
+            f"""
+            SELECT
+                p.user_id,
+                COALESCE(
+                    NULLIF(TRIM(u.name),    ''),
+                    NULLIF(TRIM(lu.name),   ''),
+                    NULLIF(TRIM(lu.username),''),
+                    NULLIF(TRIM(u.email),   ''),
+                    p.user_id
+                ) AS display_name,
+                COUNT(*)                          AS play_count,
+                SUM(p.duration_seconds)           AS total_play_seconds,
+                COUNT(DISTINCT p.project_id)      AS unique_projects
+            FROM analytics_play_events p
+            LEFT JOIN users       u  ON p.user_id = u.id
+            LEFT JOIN local_users lu ON p.user_id = ('local:' || lu.id)
+            WHERE 1=1 {date_clause}
+            GROUP BY p.user_id
+            ORDER BY play_count DESC
+            """
+        ).fetchall()
+
+        # ── Most played projects ──────────────────────────────────────────────
+        top_project_rows = conn.execute(
+            f"""
+            SELECT
+                project_id,
+                project_name,
+                COUNT(*)                     AS play_count,
+                COUNT(DISTINCT user_id)      AS unique_listeners,
+                SUM(duration_seconds)        AS total_play_seconds
+            FROM analytics_play_events
+            {where_clause}
+            GROUP BY project_id
+            ORDER BY play_count DESC
+            LIMIT 20
+            """
+        ).fetchall()
+
+        # ── Daily activity ─────────────────────────────────────────────────────
+        chart_days = max(days, 7) if days > 0 else 90
+        daily_rows = conn.execute(
+            f"""
+            SELECT
+                date,
+                COUNT(*)                AS play_count,
+                COUNT(DISTINCT user_id) AS active_users
+            FROM analytics_play_events
+            WHERE date >= date('now', '-{int(chart_days)} days')
+            GROUP BY date
+            ORDER BY date ASC
+            """
+        ).fetchall()
+
+        def row_to_dict(r):
+            return dict(r)
+
+        user_time = [row_to_dict(r) for r in user_time_rows]
+        for u in user_time:
+            u["total_time_fmt"] = _fmt_seconds(u.get("total_seconds"))
+            if u.get("last_seen_ts"):
+                u["last_seen"] = datetime.utcfromtimestamp(u["last_seen_ts"]).strftime("%Y-%m-%d %H:%M")
+            else:
+                u["last_seen"] = "—"
+
+        user_plays = [row_to_dict(r) for r in user_play_rows]
+        for u in user_plays:
+            u["total_play_fmt"] = _fmt_seconds(u.get("total_play_seconds"))
+
+        top_projects = [row_to_dict(r) for r in top_project_rows]
+        for p in top_projects:
+            p["total_play_fmt"] = _fmt_seconds(p.get("total_play_seconds"))
+
+        # Top user by session time
+        top_user = user_time[0]["display_name"] if user_time else None
+        # Top project by plays
+        top_project = top_projects[0]["project_name"] if top_projects else None
+
+        return {
+            "user_time": user_time,
+            "user_plays": user_plays,
+            "top_projects": top_projects,
+            "daily_activity": [row_to_dict(r) for r in daily_rows],
+            "top_user": top_user,
+            "top_project": top_project,
+            "total_users": len(user_time),
+            "total_plays": sum(u.get("play_count", 0) for u in user_plays),
+        }

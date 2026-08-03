@@ -33,3 +33,15 @@ webapp_5001.log
 *.ogg
 *.aac
 .DS_Store
+
+# Added by App Factory (never commit secrets/artifacts)
+node_modules/
+.env
+.env.*
+!.env.example
+.app-factory.json
+*.pem
+*.key
+id_rsa
+credentials.json
+*.log
