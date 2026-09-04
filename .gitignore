@@ -45,3 +45,13 @@ node_modules/
 id_rsa
 credentials.json
 *.log
+
+# Databases & user data (contain PII — never commit)
+/data
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-wal
+# Cookie/session exports
+*cookies*.txt
